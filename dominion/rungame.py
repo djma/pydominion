@@ -111,6 +111,37 @@ def parse_cli_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--bot", action="store_true", dest="bot", default=False, help="Bot Player")
     parser.add_argument(
+        "--ollama",
+        "--ollama-model",
+        action="append",
+        dest="ollama_models",
+        default=[],
+        help="Add an Ollama-backed LLM player with the given model (repeat for multiple players)",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        default="http://127.0.0.1:11434",
+        help="Ollama API base URL",
+    )
+    parser.add_argument(
+        "--openrouter",
+        "--openrouter-model",
+        action="append",
+        dest="openrouter_models",
+        default=[],
+        help="Add an OpenRouter-backed LLM player with the given model (repeat for multiple players)",
+    )
+    parser.add_argument(
+        "--openrouter-url",
+        default="https://openrouter.ai/api/v1",
+        help="OpenRouter API base URL",
+    )
+    parser.add_argument(
+        "--openrouter-api-key",
+        default=os.getenv("OPENROUTER_API_KEY", ""),
+        help="OpenRouter API key (defaults to OPENROUTER_API_KEY env var)",
+    )
+    parser.add_argument(
         "--randobot",
         type=int,
         dest="randobot",

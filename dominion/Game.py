@@ -115,6 +115,12 @@ class Game:
     ###########################################################################
     def output(self, msg: str) -> None:
         """Send output to all players"""
+        logger = getattr(self, "matchup_logger", None)
+        if logger is not None:
+            try:
+                logger.log_game_output(msg)
+            except OSError:
+                pass
         if not self.quiet:
             sys.stdout.write(f"ALL: {msg}\n")
 

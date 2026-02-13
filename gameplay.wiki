@@ -1,0 +1,272 @@
+[[Image:Dominion_Being_Played.jpg|thumb|right|500px|A group of people playing Dominion.]]
+This article summarizes the '''rules of the game of Dominion'''.
+
+Interpretation and exploitation of the rules and mechanics of the game entail [[strategy]] and tactics.
+== Quick Summary ==
+In a game of Dominion, each player is given a starting [[deck]] of 10 cards, and they play around a [[Supply]] of card piles that they can buy from over the course of the game.
+
+On their turn, a player goes through three turn phases:
+* [[Action phase|Action]] (A): They may play one [[Action]] card.
+* [[Buy phase|Buy]] (B): They may play their [[Treasure]] cards and [[buy]] one card that they can afford, putting that card in their [[discard pile]].
+* [[Clean-up]] (C): They take all the cards they've played, and all cards remaining in their hand, and put them into their discard pile.  They then draw (D) 5 more cards, and end their turn.
+
+When any player needs to draw cards and there are not enough cards left in their deck to do so, they [[reshuffle]] their discard pile to create a new deck. In this way cards that have been bought on earlier turns will be drawn on later turns to be played.
+
+The game ends when either [[Three-pile ending|3 Supply piles are empty]], or when the {{Card|Province}} pile or the {{Card|Colony}} pile empties.  The player with the most [[victory point]]s wins.
+
+Many effects can allow the player to play more than one Action card or buy more than one card per turn. There are exceptions to almost everything else just listed above as well, as discussed in detail below.
+
+== Setup ==
+[[Image:Supply2.png|thumb|right|500px|A diagram from the official rulebook, highlighting a typical setup.]]
+
+=== Standard setup ===
+To [[setup|set up]] the game, first prepare the [[pile]]s of cards which constitute the [[Supply]]. The Supply normally consists of the 7 [[basic cards|basic]] Supply piles ({{Card|Curse}}, {{Card|Copper}}, {{Card|Silver}}, {{Card|Gold}}, {{Card|Estate}}, {{Card|Duchy}}, and {{Card|Province}}) and 10 [[Kingdom]] cards. Curse cards are included even if no Kingdom card specifically references them. The 10 Kingdom cards, collectively known as the Kingdom, may be chosen by any method agreed upon by the players. A common method is to select randomly from the [[Randomizer]] deck.  Alternatively, there are some [[Recommended Kingdoms]] that introduce the game and expansions or create interesting decisions for players.
+
+[[Victory]] cards and Curses have different numbers of cards in their piles with different numbers of players.  Victory card piles have 8 cards in a 2-player game, and 12 cards otherwise (except for the Province pile, which has 15 cards in a 5-player game, and 18 cards in a 6-player game).  The Curse pile has 10 cards for each player after the first, so 10 cards in a 2-player game, 20 cards in a 3-player game, etc.
+
+Finally, mark out the [[trash pile]] (typically with the trash card or [[trash mat]]), and give each player a starting Deck consisting of 7 Coppers (from the Supply) and 3 Estates (not from the 8 or 12 in the Supply).
+
+{| class="wikitable"
+! 
+! style="font-weight:bold;" | 2 players
+! style="font-weight:bold;" | 3 players
+! style="font-weight:bold;" | 4 players
+! style="font-weight:bold;" | 5 players
+! style="font-weight:bold;" | 6 players
+|-
+| {{Card|Copper}}
+| 46
+| 39
+| 32
+| 25 / 85
+| 18 / 78
+|-
+| {{Card|Silver}}
+| 40
+| 40
+| 40
+| 40 / 80
+| 40 / 80
+|-
+| {{Card|Gold}}
+| 30
+| 30
+| 30
+| 30 / 60
+| 30 / 60
+|-
+| {{Card|Curse}}
+| 10
+| 20
+| 30
+| 40
+| 50
+|-
+| {{Card|Estate}}
+| 8
+| 12
+| 12
+| 12
+| 12
+|-
+| {{Card|Duchy}}
+| 8
+| 12
+| 12
+| 12
+| 12
+|-
+| {{Card|Province}}
+| 8
+| 12
+| 12
+| 15
+| 18
+|}
+
+=== Additional setup rules ===
+In addition to the Kingdom cards selected for the Supply, [[Event]]s, [[Landmark]]s, [[Project]]s, [[Way]]s, and [[Trait]]s may be included in gameplay as well; like Kingdom cards, these may be selected in any way. It is recommended that no more than two total of these and no more than one Way be used per game. If a Trait is used, it is also necessary to select a Kingdom card for the Trait to apply to.
+
+Each pile of Kingdom cards in the Supply normally contains 10 cards. Some exceptions include:
+* The {{Card|Rats}} pile (if in the Kingdom) contains 20 cards.
+* The {{Card|Port}} pile (if in the Kingdom) contains 12 cards.
+* There are 16 cards in each [[split pile]] of {{Card|Augurs}}, {{Card|Clashes}}, {{Card|Forts}}, {{Card|Odysseys}}, {{Card|Townsfolk}}, {{Card|Wizards}}, with 4 of each individual card.
+* Victory card piles (Kingdom and basic Supply) contain 8 cards in a two-player game and 12 cards in games with more players. (A Kingdom card which is both a Victory card and another type is considered a Victory card.)
+** In 2-player games, use one of each {{Card|Castles|Castle}}; with more players, use all 12 cards.
+
+In a game with 5 or 6 players, it is recommended to use two full sets of basic [[Treasure]] cards combined, doubling the size of each pile.
+
+Some Kingdom cards and [[landscape]]s include [[setup|additional setup instructions]] that are printed on the card and must be carried out before gameplay begins. However, there are many additional setup procedures that can be triggered by specific card-shaped things in ways that are implied, or stated in the rule book, without being spelled out on each specific card. 
+
+Certain Kingdom cards will require additional piles to be included in the Supply. Additional piles which may be included are:
+* {{Card|Potion}} is used whenever any Kingdom card has {{Cost||||P}} in its cost.
+* The {{Card|Colony}} and {{Card|Platinum}} piles may be added in games using Kingdom cards from {{Set|Prosperity}}; it is recommended that this be decided randomly based on the percentage of Prosperity cards in the Kingdom (see the [[Prosperity#Additional Rules|Prosperity additional rules]] for more information).
+* [[Ruins]] are used whenever a card with the type [[Looter]] is included in the Kingdom. Specifically, {{Card|Cultist}}, {{Card|Death Cart}}, and {{Card|Marauder}} constitute the Looters.
+** The Ruins pile changes size exactly like the Curse pile; so it has 10 cards in a 2-player game, 20 cards in a 3-player game, etc.
+
+If cards from {{Set|Dark Ages}} are in the Kingdom, each player's starting Estates may be replaced with [[Shelter]] cards (see the [[Dark Ages#Additional Rules|additional rules for Dark Ages]] for more information). Some Kingdom cards in {{set|Nocturne}} cause one of each player's starting Coppers to be replaced with a particular [[Heirloom]].
+
+Some Kingdom cards, if selected for a game, may involve the use of other piles of cards that are [[non-Supply|not considered part of the Supply]]. Since these additional piles are not part of the Supply, cards from them cannot ordinarily be bought, and depleting them does not count towards the game ending condition; however, they should be kept accessible near the supply when Kingdom cards calling for them are present.  For example:
+* [[Reward]]s are used with {{Card|Joust}}.
+* {{Card|Spoils}} are needed whenever {{Card|Bandit Camp}}, {{Card|Marauder}}, or {{Card|Pillage}} is in the Kingdom.
+* {{Card|Madman}} is used with {{Card|Hermit}}, and {{Card|Mercenary}} is used with {{Card|Urchin}}.
+* The two [[Traveller]] Kingdom cards, {{Card|Page}} and {{Card|Peasant}}, each come with four additional piles of 5 cards each that they can [[exchange]] into.
+* [[Spirit]]s are used with {{Card|Exorcist}} and a few other cards; {{Card|Wish}} is used with {{Card|Leprechaun}} or {{Card|Secret Cave}}; {{Card|Bat}} is used with {{Card|Vampire}}.
+* {{Card|Horse}} is used with multiple Events and Kingdom cards; [[Loot]] is used with several other Kingdom cards and Events and one Trait.
+
+Certain landscape types are introduced if cards of specific [[type]]s are in use. The [[Boon]] pile is used with [[Fate]] cards, and the [[Hex]] pile is used with [[Doom]] cards. If a [[Liaison]] card is in use, an [[Ally]] must be selected and each player given a [[Favor]] token; if an [[Omen]] card is in use, a [[Prophecy]] must be selected and set up with a certain number of {{sun}} tokens.
+
+Some cards (including  {{Card|Island}}, {{card|Native Village}}, [[Reserve]] cards, and cards using the [[Exile]] mechanic) require that players be given a special [[mat]] to put cards on. Others require mats to put [[token]]s on; these include [[Liaison]]s and cards using the [[Coffers]] or [[Villager]] mechanic.
+
+== Turn Phases ==
+[[Image:Dominion_Play_Mat.jpg|thumb|right|500px|A Dominion playmat, highlighting the player's deck, play area, and discard pile, and summarizing the three turn phases.]]
+{{Main|Turn}}
+
+Starting with the first player (decided randomly to begin with; after that the player who got the fewest points in the previous game), each player sequentially plays a [[turn]], divided into three distinct phases: [[Action phase]], [[Buy phase]], [[Clean-up phase]] (usually abbreviated "ABC").  Once each player has taken their turn, the sequence begins again, one turn after the other, continuing until an end condition is met.
+
+=== Action phase ===
+Each player has one [[Action play]] at the start of their turn, and during their Action phase, they may use that Action play, and any other Action plays they receive during their turn, to play one or more [[Action card]]s.  Note that ''Action plays'' and ''Action cards'' are separate things; Action plays are a sort of currency used to play Action cards.
+
+Action cards are the cards that [[card types|say ''Action'' at the bottom of the card]]. Since under ordinary circumstances players do not start the game with any Action cards in their initial decks of 10 cards, a player will usually not have any Action cards to play [[opening|during their first 2 turns]]; however, [[Shelter]]s from {{set|Dark Ages}} and {{trait|Inherited}} from {{set|Plunder}} can change that. By default, a player may play only one Action card (since they start their turn with only 1 Action play), but [[non-terminal|some Action cards]] or other abilities grant the player the right to play one [[village (card category)|or more]] additional Action cards afterward. It is never mandatory to play an Action card even if you have one in hand and Action plays remaining; the only exception is when another card that you have played (or [[card-shaped thing]]) instructs you to do so.
+
+To play an Action card, the player takes an Action card from their hand and lays it face-up in their play area. They announce which card they are playing and follow the instructions written on that card from top to bottom, except for instructions specifically noted as [[triggered effects|applying at a time other than when the card is played]]. The player may still play an Action card even if they are not able to do everything the Action card tells them to do; but, having played it, the player must follow as much of the card's instructions as they can. Furthermore, the player must fully resolve an Action card before playing another one (if they are permitted to play another Action card) or concluding their Action phase. Any Action cards played remain in the player's play area until the Clean-up phase of that turn, unless otherwise instructed. The Action phase ends when the player cannot or chooses not to play any more Action cards. In general, a player can only play Action cards during the Action phase of their turn; however, certain cards and abilities from [[expansion]]s allow Action cards to be played during other phases in certain circumstances.
+
+Effects that are stipulated to take place "[[start of turn|at the start of your turn]]" are considered to occur during the Action phase, although they must finish resolving before the player can begin playing Action cards in the usual way.
+
+=== Buy phase ===
+Each player has one Buy at the start of their turn, and during their Buy phase, they may use that Buy, and any other Buys they receive during their turn, to pay the [[cost]] of one or more cards from the Supply, [[gain]]ing them once paid for. Buys can also be spent to pay the cost of [[Event]]s or [[Project]]s, which can activate various effects.
+
+At the beginning of the Buy phase, the player may play any number of [[Treasure]] cards from their hand, in any order, to their play area. These usually produce some amount of {{Cost}}, which is added to any {{Cost}} produced by cards played in the Action phase. Some Treasure cards have other effects as well, which are resolved when played in the same way Action cards are resolved in the Action phase. Once a player begins to use their Buys, they may not play any more Treasures.
+
+The player may then buy any one card from the [[Supply]] whose [[cost]] is equal to or less than the total amount of {{Cost}} the player has accumulated this turn: the cost of the bought card, which can be found in the lower left corner, is subtracted from their total, and then they gain the card. Gained cards are taken from the Supply and placed face-up directly in the player's [[discard pile]] unless otherwise instructed. Ordinarily any card of equal or lower cost that is in the Supply may be purchased. The player may not purchase cards from the [[Trash pile]] or [[non-Supply]] piles. In games using Events or Projects, one of these may be bought instead of a card.
+
+By default, a player may buy only one card (or Event or Project), but they may buy more if they received [[+Buy|additional Buys]] either in the Action phase or earlier in the Buy phase; additional Buys may be granted by a variety of cards and other effects. In this case, after buying one card, the player may use whatever {{Cost}} they have remaining to buy another, and so on until they exhaust their +Buys; in other words, the amount of {{Cost}} the player has this turn must be divided among all the cards (or Events or Projects) they wish to buy. Some cards in the Supply and Events cost {{Cost|0}}; it still uses up a Buy, though not any {{Cost}}, to purchase one of these. Players do not have to use any or all of their Buys on a given turn; it is never obligatory to buy something.
+
+Ordinarily, buying a card does not allow a player to use its abilities; it simply goes straight to their discard pile to be used later. However, there are a few cards that have special effects that take place immediately [[when-gain|when the card is gained]]; these are identified specifically on the card. If an Event is bought, instead of gaining anything the player simply immediately carries out the instructions printed on the Event card (which may involve gaining something). If a Project is bought, the player puts their [[token#Wooden cubes|token]] on the Project card and carries out the Project's ability at the time indicated in its instructions.
+
+Some cards have additional or alternative costs to {{Cost}}; either {{P}} or {{Debt}}.  Cards with {{P}} in their cost require players to have played a {{Card|Potion}} in order to buy them; this otherwise behaves exactly like buying a card with {{Cost}}.  If a player wants to buy more than one {{P}}-costing card, they must play more than one Potion.  Cards with {{Debt}} in their cost require the buyer to take a certain amount of {{Debt}} tokens, rather than paying {{Cost}}. A player cannot buy anything if they hold {{Debt}} tokens, even if they have additional Buys; they must instead pay off {{Debt}}, which does not use up a Buy.  Paying off {{Debt}} can be done at any time during a player's turn, at a rate of {{Cost|1}} to {{Debt|1}}.
+
+=== Night phase ===
+If any [[Night]] cards (from {{Set|Nocturne}}) are present, then a [[Night phase]] will occur between the Buy and Clean-up phases (making the order Action, Buy, ''Night'', Clean-up).  During a player's Night phase, they may play any number of Night cards, from their hand, in any order, to their play area.  At this point, there will still be Action and Treasure cards in play from the player's Action and Buy phases, which matters for some Night cards.  Night cards are discarded during the Clean-up phase of the turn they are played (unless they are also [[Duration]] cards), just like Actions and Treasures.
+
+=== Clean-up phase ===
+Once a player is done buying cards, and playing Night cards, they move into their Clean-up phase.  All cards in the player's hand, and all cards in the player's play area that are done tracking effects, are put into the player's discard pile, and they draw a new hand of 5 cards, and end their turn.
+
+All cards gained this turn should already be in the player's discard pile. The player places any cards that are in their play area (Action cards that have been played in the Action phase as well as Treasure cards that have been played in the Buy phase) and any cards remaining in their hand onto their discard pile. Although the player need not show the cards remaining in their hand to their opponents, since they place the cards in the discard pile face-up, their opponents will always be able to see the top-most card of their discard pile.
+
+Then, the player draws a new hand of 5 cards from their deck. If there are not enough cards in their deck, they set aside the cards that are left, [[shuffle]] their discard pile to form a new face-down deck, put the set aside remains of their previous deck on top of the new deck, then draw their new hand. Once the player has drawn a new hand of 5 cards, the next player starts their turn. To speed play, players may begin their turns while previous players are shuffling and drawing their new hand, though this should be done with a certain amount of discretion, as many cards, such as [[Attack]]s, interact with other players.
+
+=== End of turn ===
+Some cards refer to "at the end of this turn", for example {{Event|Save}} and {{Ally|Island Folk}}. This occurs after the completion of Clean-up, including drawing a new hand of five cards.  This means that any cards added to the hand at the end of the turn will be in addition to those five cards.
+
+=== Other considerations ===
+Certain cards have rules which supersede the rules presented here. [[Duration|Duration cards]] remain [[in play]] until the turn when they stop doing something. Other cards, such as {{Card|Treasury}}, {{Card|Scheme}}, and {{Card|Herbalist}}, allow you to place cards on top of your Deck when you discard them from play during the Clean-up phase, or have other special effects when discarded from play. [[Reserve]] cards are not necessarily found in the play area when cleaning up on the turn they are played; instead they are found in the play area on the turn they are [[call]]ed.
+{{Ally|Coastal Haven}} is an [[Ally]] from [[Allies]]. It allows you to use [[Favor]] tokens to save unused cards in your hand (during Clean-up) from one turn to the next.
+
+== Mechanics & Keywords ==
+A number of terms appear on cards and [[Event]]s with specific meanings.
+
+=== Basic mechanics ===
+These mechanics originate in the Base set, and appear in all sets.
+* '''[[Draw|+X Card(s)]]''': Draw that amount of cards from your deck.  E.g., "+3 Cards" on {{Card|Smithy}} means you draw 3 cards when you play it.
+* '''[[Action play|+X Action(s)]]''': You may play that many more [[Action]]s this turn.  E.g., "+2 Actions" on {{Card|Village}} means you may play 2 more Action cards after you play it.
+* '''[[+Buy|+X Buy(s)]]''': You may buy that many more cards (or Events) this turn.  E.g., "+1 Buy" on {{Card|Market}} means you may buy 1 additional card or Event this turn.
+* {{Costplus|X}}: You receive that much more {{Cost}} to spend this turn.  E.g., "{{Costplus|2}}" on {{Card|Festival}} means you have {{Cost|2}} more to spend this turn, in addition to any {{Cost}} you've fielded from [[Treasure]]s and other Actions.
+* '''[[Discard]]''': Put a number of cards into your [[discard pile]] from some location (by default, from your hand).  E.g., {{Card|Cellar}} tells the player to discard any number of cards, which all must come from their hand, and are put directly into the discard pile.  Other locations can be specified, e.g., {{Card|Vassal}} tells the player to discard a card from the top of their deck.
+* '''[[Gain]]''': Take a card from a pile and put it into your discard pile.  E.g., {{Card|Workshop}} tells you to take a card costing up to {{Cost|4}} from the [[Supply]] and put it into your discard pile.  Other gain locations can be specified, such as on {{Card|Mine}}.
+* '''Look at''': Pick up a card so that only you can see it.  It is returned to where it came from if nothing else happens to it.  E.g., {{Card|Sentry}} tells the player to look at the top 2 cards of their deck.
+* '''[[Reveal]]''': Show a card to all players.  It is returned to where it came from if nothing else happens to it.  E.g., {{Card|Moat}} may be revealed from a player's hand when another player plays an [[Attack]].
+* '''[[Set aside]]''': Put a card off to the side, so that it is not in your hand, play area, deck, or discard pile.  It is set aside face up by default, and stays set aside until the end of the game unless you are told to do something with it.  E.g., {{Card|Library}} can set aside Action cards while it draws up to 7 cards.
+* '''[[Trash]]''': Put a card from some location into the Trash pile.  A location will always be specified in the card or Event text where to trash the card from.  Once in the Trash, a card cannot be gained or otherwise interacted with normally (although there are exceptions, e.g. {{Card|Graverobber}}).  E.g., {{Card|Chapel}} lets a player trash up to 4 cards from their hand.
+
+=== Advanced mechanics ===
+These mechanics do not originate in the Base set, and most are limited to one or two sets.
+* '''[[Pass]]''': Give a card to another player.  This is not considered trashing for the passing player, nor gaining for the player passed to.  It only appears on {{Card|Masquerade}}.
+* '''{{VP|+X}}''': Take that number of [[Victory token]]s.  Each such token is worth {{VP|1}} at the end of the game.
+* '''+X [[Coffers]]''': Put that number of Coin tokens on your Coffers [[mat]].  Such tokens can be spent at any time during your turn for {{Costplus|1}} each.
+* '''+X [[Villager]]s''': Put that number of Coin tokens on your Villager mat.  Such tokens can be spent at any time during your [[Action phase]] for +1 Action each.
+* '''[[Overpay]]''': A player may pay extra when buying this card, either in {{Cost}} or {{P}}.  Doing so will have an effect described by the card.
+* '''[[Call]]''': Take this card off of the [[Tavern mat]] and put it in your play area.  This does not count as playing the card, and does not use up an Action play.  This only applies to [[Reserve]] cards.
+* '''[[Exchange]]''': Return this card to its [[pile]], and take a copy of the other specified card and put it in your discard pile.  This does not count as gaining.  This can only be done if the exchanging card has a pile to return to, and if there are copies available of the card to be exchanged into; it does not depend on whether the piles are in the Supply or not.
+* '''{{Debtplus|X}}''': Take that number of [[Debt]] tokens.  A player cannot buy anything while they have Debt tokens, and can only pay off {{Debt}}, at a rate of {{Cost|1}} to {{Debt|1}}.
+* '''Receive a [[Boon]]/[[Hex]]''': Turn over the top card of the Boon or Hex pile, and apply its effects to the relevant player(s), putting it in the Boon or Hex discard pile afterwards.
+* '''Take a Boon''': Turn over the top card of the Boon pile, and keep it in front of you, but don't "receive" it yet.  {{Card|Blessed Village}} uses this phrasing for timing reasons.
+* '''[[Exile]]''': Put a card from some location onto your [[Exile mat]]. A location will always be specified in the card or Event text where to Exile the card from. You can later discard your Exiled cards by gaining a copy of that card.
+* '''[[Rotate]]''': If a pile in the Supply has differently-named cards in it, move all copies of the same card from the top of the pile to the bottom of the pile.
+
+== Ending conditions ==
+The game ends at the end of any player’s turn when any of these are true:
+* Any [[Three-pile ending|three Supply piles are empty]] (four Supply piles in a game of at least five players)
+* The {{Card|Province}} Supply pile is empty
+* The {{Card|Colony}} Supply pile is empty (if Colony was used)
+The game end happens after any other end of turn effects, such as from {{Landmark|Baths}} or {{Event|Save}}, are done resolving.
+
+== Scoring ==
+Each player puts all of their cards into their [[Deck]] and counts the [[victory point]]s on all the cards they have. The player with the most victory points wins. If the highest scores are tied at the end of the game, the tied player who has had the fewest turns wins the game. If the tied players have had the same number of turns, they rejoice in their shared victory.
+
+== Game zones ==
+While the rules do not talk about ''zones'' as such, they are clearly established and an understanding of how they work can clear up confusion, especially for new players. Many events in the game can be conceptualized as a card or multiple cards being moved from one zone to another, with different zones having different properties.
+
+This framework also aids in conceiving Dominion as a set of discrete instructions, such as would be used by computer programs.
+
+For each player, the following zones exist:
+
+* The player's hand
+** These are the cards a player holds during the game.  They are kept secret from other players, and a player can only play cards from their hand, not from any of the other game zones, unless otherwise directed.  A player's hand is [[discard]]ed during their [[Clean-up phase]], and is replaced by the top 5 cards of their deck.
+** There is no general limit to number of cards a player can have in their hand at the same time, however there are cards whose effect forces players to discard to bring the number of cards in their hand down to a specific number.
+* The player's Deck
+** The stack of face-down cards that a player uses to replenish their hand.  When told to draw cards, players take the top card or cards from their deck, unless otherwise directed.  
+** When a player's deck does not have enough cards remaining to do something, such as drawing or [[reveal]]ing a specified number of cards, they [[shuffle]] their discard pile, and put it under the remaining few cards of their deck, then perform the effect they were trying to do.  
+** The word "deck" also refers to all of the cards a player owns, including those in their hand and discard pile, and cards that they have [[set aside]] and put on [[mat]]s; this meaning is typically only used at the end of the game, when [[scoring]].
+* The player's Discard pile
+** The stack of face-up cards that players deposit their gained and cleaned-up cards into.  During their Clean-up phase, players put all the cards in their hand and all the cards they have in play into their discard pile, unless otherwise directed.  When a player gains a card, they put it in their discard pile, unless otherwise directed.  Players may not look through their discard pile, unless specifically told to do so by an effect.  A player's discard pile is shuffled when their deck does not have enough cards remaining to perform an effect; this is then placed underneath the previous deck, and the whole becomes the player's new deck.  That player then starts a new discard pile the next time they must discard a card.
+* The player's play area
+** The area in front of a player in which they play cards.  This is distinct from a player's discard pile; cards are not discarded when they are played, but put into this area.  This becomes relevant when a player must shuffle in the middle of their turn.
+* The player's revealed cards zone
+** A temporary area without a fixed location where players show cards they reveal, whether from their hand, deck, or discard pile.  Revealed cards return to the zone they were revealed from, unless otherwise directed.
+* The player's mats and set aside zone
+** Some cards set themselves or other cards aside; many put themselves onto a specific mat, but a few do not.  In games using such cards, players should take the relevant mat(s), and/or mark out a spot where they will set aside these cards, separate from their other zones.  Set aside cards are not counted as "in play" or as "discarded", but they are returned to a player's deck at the end of the game, if they are not instructed to return them before that time.  Some mats hold tokens instead of cards.
+
+Additionally, for all players, the following communal zones exist: 
+* The Trash pile
+** The area where trashed cards are deposited.  Unless otherwise directed, players may not remove cards from the trash pile once they are there.
+* Each Supply pile (including basic card piles and Kingdom card piles)
+* Any non-Supply piles (in addition to the Trash)
+
+Finally, several card abilities create more or less temporary zones, most often by instructing the player to ''set aside'' certain cards (sometimes only while an ability is resolved, other times indefinitely; cards which set aside cards will tell the player how to return set aside cards to one of the permanent zones). This zone is occasionally informally referred to as ''set-aside-cards-land''.
+
+== Additional rules ==
+Dominion is rather notable in that, aside from basic setup and the three turn phases, most of the rules are on the cards themselves, so players do not have to memorize much in that regard.  However, there are a few rules that must be invoked when complicated interactions between cards crop up.  Most casual players will never need to worry about these, but competitive players need to be very much aware of their implications.
+
+=== Order of effects ===
+Whenever an effect involves more than one player, that effect is resolved in turn order, starting with the player whose turn it is.  For example, if someone plays {{Card|Duchess}}, they first look at the top card of their own deck and decide what to do with it, then the player to their left, and so on.  In practice, most effects (like Duchess's) can be resolved simultaneously, but there are some instances where it would behoove players to slow down and adhere strictly to this rule, such as when certain [[Attack]]s are played.  For example, when playing {{Card|Scrying Pool}}, a player may make a different decision as to whether or not to keep their revealed card if they can see the other players' cards.
+
+These effects must be fully completed before moving on to the next player.  For example, when {{Card|Followers}} is played, each player must gain a {{Card|Curse}} ''and'' discard down to 3 cards in hand before the next player reacts.  Sometimes, a card may have more than one multi-player trigger, signified by more than one clause starting with "for each [other] player".  For example, if {{Card|Catapult}} is played, and a [[Treasure]] costing {{Cost|3}} or more is [[trash]]ed, each other player gains a Curse in turn order first, ''then'' each other player discards down to 3 cards in hand, in turn order.
+
+=== Blue dog rule ===
+{{Main|Blue dog rule}}
+
+When one card has an effect based on another card that it gains (such as {{Card|Ironworks}}), and that gaining is prevented by a third card, such as {{Card|Trader|oi=2}} (prior version), the first card's effect that would have been based on the second card does not occur.
+
+=== Stop-Moving rule ===
+{{Main|Stop-Moving rule}}
+
+An ability that tells you to move a card will not take effect if the card is not where the ability presupposes it to be. For instance, if you are instructed to put a card you have played on top of your deck, but the card is no longer in your play area by the time you receive the instruction, you leave the card wherever it is now instead of top-decking it from there. If the Stop-Moving rule prevents you from moving a card to the play area, you can't play the card (unless you are replaying it with a [[Throne Room variant]]) [http://forum.dominionstrategy.com/index.php?topic=19893.msg871558#msg871558].
+
+The Stop-Moving rule supersedes the previous [[Lose-Track rule]].
+
+=== No Visiting rule ===
+{{Main|No Visiting rule}}
+
+When a card is gained to a location other than the discard pile (such as {{Card|Nomad Camp}}), it does not "visit" the discard pile, but goes directly to its other location, unless its movement happens ''after'' its gaining (such as with {{Card|Watchtower}}).
+
+=== Exotic card types ===
+[[Card type]]s introduced in later expansions (such as [[Duration]]s and [[Traveller]]s) have particular rules associated with their use that are not necessarily immediately obvious from what is written on the cards.  The specific rules for these types are detailed on their individual articles.
+
+=== Official FAQ and Rulings ===
+Each [[expansion]] (and each [[Promo|promotional card]]) comes with a detailed FAQ intended to elaborate on each card's effects, in order to mitigate confusion or to point out interactions that aren't immediately obvious.  This is meant to be the authoritative, final word on the subject; however, there are many instances where subtle or uncommon interactions between cards are missed by the designers or playtesters, and there are a few cases where the FAQ is actually wrong.  In these cases, [[Donald X.]] usually issues a ruling after the fact (and even these rulings sometimes change).  The full FAQ for each card, as well as any rulings, are detailed on individual card articles.
+
+{{Navbox Strategy}}
+{{Navbox Mechanics}}
+[[Category:Rules]]
+

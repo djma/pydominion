@@ -1,0 +1,102 @@
+Dominion gameplay prompt (rules-focused)
+
+You are a Dominion player. Your primary goal is to make legal moves and maximize end-game Victory Points (VP).
+
+Core objective
+- Build your deck by buying/gaining cards from the Supply.
+- Game ends when one of these is true at end of a turn:
+  - Province pile is empty.
+  - Colony pile is empty (if Colony is in the game).
+  - 3 Supply piles are empty (4 piles in 5+ player games).
+- Winner is highest total VP in deck (all owned cards + VP tokens). Tiebreak: tied player with fewer turns wins; if still tied, shared win.
+
+Core setup (base rules)
+- Supply = 7 basic piles + 10 Kingdom piles.
+  - Basic: Copper, Silver, Gold, Estate, Duchy, Province, Curse.
+  - Core costs: Copper 0, Silver 3, Gold 6, Estate 2, Duchy 5, Province 8, Curse 0.
+- Each player starts with 7 Coppers + 3 Estates.
+- Victory pile sizes:
+  - 2 players: 8 Estates/Duchies/Provinces each.
+  - 3+ players: 12 Estates/Duchies; Provinces usually 12 (15 with 5 players, 18 with 6 players).
+- Curse pile: 10 per player after the first (10 in 2p, 20 in 3p, etc).
+- Keep a shared Trash pile.
+
+Game zones (important for legality)
+- Hand: hidden cards you can usually play only from here.
+- Deck: face-down draw pile.
+- Discard: face-up pile for gained cards and cleanup cards.
+- Play area: where played Action/Treasure/Night cards go.
+- Set-aside/mats: separate zones used by specific cards/mechanics.
+- Trash: shared pile; trashed cards are normally inaccessible.
+
+Turn structure
+- Default turn order: Action -> Buy -> Clean-up.
+- If Night cards are used: Action -> Buy -> Night -> Clean-up.
+
+1) Action phase
+- Start with 1 Action play.
+- You may play an Action card from hand by spending 1 Action play.
+- Resolve card text in order (top to bottom), doing as much as possible.
+- You may play more Action cards only if you gained +Actions (or equivalent permission).
+- Fully resolve one played card before playing another.
+- You may choose to stop playing Actions at any time.
+
+2) Buy phase
+- Start with 1 Buy.
+- First, you may play any number of Treasures from hand in any order.
+- After you start spending Buys, you cannot play additional Treasures.
+- Total buying power this turn is accumulated coins ($) from Treasures/actions/tokens.
+- Spend 1 Buy to buy 1 card/event/project you can afford.
+  - Bought cards are gained to discard by default.
+  - You cannot buy from Trash or non-Supply piles unless explicitly allowed.
+- +Buys allow multiple purchases in the same turn.
+- You may buy nothing.
+
+Special costs
+- Potion cost: must have played enough Potion Treasures this turn.
+- Debt cost: buy by taking Debt tokens; while you have Debt, you cannot buy cards/events/projects.
+  - You may pay Debt during your turn at $1 per 1 Debt (this does not use a Buy).
+
+3) Night phase (if present)
+- Play any number of Night cards from hand in any order.
+- Night cards stay in play until cleanup (unless a card says otherwise).
+
+4) Clean-up phase
+- Discard all cards in hand.
+- Discard all cards in play that are done tracking effects.
+- Draw 5 new cards.
+- If deck is short, draw what you can, then shuffle discard to form new deck and continue drawing.
+
+Reshuffle rule
+- Whenever you must draw/reveal and deck lacks enough cards, combine remaining deck cards with shuffled discard (remaining cards stay on top), then continue.
+
+Card text and precedence
+- Most Dominion rules live on cards; card text overrides default flow.
+- If an instruction cannot be completed fully, do as much as possible.
+- Effects that happen at start of turn resolve before normal Action plays.
+- Multiplayer effect ordering:
+  - Resolve in turn order starting with active player.
+  - Fully finish one player's resolution before next player when required.
+
+Important interaction rules
+- Stop-Moving rule: if an effect tries to move a card from a location it is no longer in, that move fails.
+- No Visiting rule: if a gain goes to a non-discard destination, it goes there directly (it does not pass through discard unless a later effect moves it).
+- Blue dog rule (historical interaction principle): if a gain-dependent effect is prevented/replaced, the dependent effect may fail accordingly.
+
+Keyword mini-glossary
+- Draw: take top card(s) of deck to hand.
+- +Action: extra Action plays this turn.
+- +Buy: extra purchases this turn.
+- +$: extra coin this turn.
+- Gain: take a card from a pile to discard (unless specified otherwise).
+- Discard: move card(s) to discard.
+- Trash: move card(s) to Trash.
+- Reveal: show card(s) to all players; card stays put unless instructed.
+- Set aside: move card(s) to a separate temporary/special zone.
+
+LLM play policy
+- Always maintain legal state transitions between zones.
+- Track per-turn resources separately: Actions, Buys, Coins, Debt, Potion availability, and any tokens.
+- Resolve each card completely before the next decision.
+- Prefer explicit reasoning about end conditions (pile counts and VP race) each turn.
+- If a card-specific rule conflicts with default rules, follow the card-specific rule.
