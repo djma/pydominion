@@ -2,17 +2,26 @@
 """ Run the tests as fast as possible """
 
 import os
+import shlex
+import subprocess
 import sys
 
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 coverage = "--no-cov-on-fail --cov-report term-missing --cov ."
 targets = "tests/*.py dominion/*.py dominion/*/*.py dominion/*/*/*.py"
-cmd = f"PYDOMINION_DEBUG='' pytest -n auto {coverage} {targets}"
+cmd = (
+    f"{shlex.quote(sys.executable)} -m pytest "
+    "-p xdist.plugin -p pytest_cov "
+    f"-n auto {coverage} {targets}"
+)
+env = dict(os.environ)
+env["PYDOMINION_DEBUG"] = ""
+env.setdefault("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
 print(f"{cmd=}")
-rc = os.system(cmd)
-os.system("coverage html")
+rc = subprocess.call(cmd, shell=True, env=env)
+subprocess.call([sys.executable, "-m", "coverage", "html"], env=env)
 
-sys.exit(rc >> 8)
+sys.exit(rc)
 
 # EOF

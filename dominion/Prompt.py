@@ -395,12 +395,19 @@ def display_tokens(player: "Player") -> str:
 ###########################################################################
 def display_prophecy_overview(player: "Player") -> None:
     """Display prophecy details"""
+    for line in prophecy_overview_lines(player):
+        player.output(line)
+
+
+###########################################################################
+def prophecy_overview_lines(player: "Player") -> list[str]:
+    """Return prophecy overview lines."""
+    lines: list[str] = []
     if player.game.inactive_prophecy and not player.game.prophecy:
-        player.output(
-            f"| Inactive Prophecy: {player.game.inactive_prophecy.name} ({player.game.sun_tokens} Sun Tokens)"
-        )
+        lines.append(f"| Inactive Prophecy: {player.game.inactive_prophecy.name} ({player.game.sun_tokens} Sun Tokens)")
     if player.game.prophecy:
-        player.output(f"| Prophecy: {player.game.prophecy.name}: {player.game.prophecy.description(player)}")
+        lines.append(f"| Prophecy: {player.game.prophecy.name}: {player.game.prophecy.description(player)}")
+    return lines
 
 
 ###########################################################################
@@ -412,60 +419,75 @@ def pile_display(pile: PlayArea) -> str:
 ###########################################################################
 def display_piles_overview(player: "Player") -> None:
     """Display the player piles"""
+    for line in piles_overview_lines(player):
+        player.output(line)
+
+
+###########################################################################
+def piles_overview_lines(player: "Player") -> list[str]:
+    """Return the player piles overview lines."""
+    lines: list[str] = []
     if player.piles[Piles.DEFER]:
-        player.output(f"| Defer: {pile_display(player.piles[Piles.DEFER])}")
+        lines.append(f"| Defer: {pile_display(player.piles[Piles.DEFER])}")
     if player.piles[Piles.DURATION]:
-        player.output(f"| Duration: {pile_display(player.piles[Piles.DURATION])}")
+        lines.append(f"| Duration: {pile_display(player.piles[Piles.DURATION])}")
     if player.piles[Piles.RESERVE]:
-        player.output(f"| Reserve: {pile_display(player.piles[Piles.RESERVE])}")
+        lines.append(f"| Reserve: {pile_display(player.piles[Piles.RESERVE])}")
     if player.piles[Piles.HAND]:
-        player.output(f"| Hand ({len(player.piles[Piles.HAND])}): {pile_display(player.piles[Piles.HAND])}")
+        lines.append(f"| Hand ({len(player.piles[Piles.HAND])}): {pile_display(player.piles[Piles.HAND])}")
     else:
-        player.output("| Hand: <EMPTY>")
+        lines.append("| Hand: <EMPTY>")
     if player.piles[Piles.EXILE]:
-        player.output(f"| Exile: {pile_display(player.piles[Piles.EXILE])}")
+        lines.append(f"| Exile: {pile_display(player.piles[Piles.EXILE])}")
     if player.piles[Piles.PLAYED]:
-        player.output(f"| Played ({len(player.piles[Piles.PLAYED])}): {pile_display(player.piles[Piles.PLAYED])}")
+        lines.append(f"| Played ({len(player.piles[Piles.PLAYED])}): {pile_display(player.piles[Piles.PLAYED])}")
     else:
-        player.output("| Played: <NONE>")
+        lines.append("| Played: <NONE>")
 
     if os.getenv("PYDOMINION_DEBUG"):  # pragma: no coverage
-        player.output(f"| Deck ({len(player.piles[Piles.DECK])}): {pile_display(player.piles[Piles.DECK])}")
-        player.output(f"| Cards Elsewhere: {player.secret_count}")
+        lines.append(f"| Deck ({len(player.piles[Piles.DECK])}): {pile_display(player.piles[Piles.DECK])}")
+        lines.append(f"| Cards Elsewhere: {player.secret_count}")
     else:
-        player.output(f"| Deck Size: {len(player.piles[Piles.DECK])}")
+        lines.append(f"| Deck Size: {len(player.piles[Piles.DECK])}")
 
-    player.output(
-        f"| Discard ({len(player.piles[Piles.DISCARD])}): {pile_display(player.piles[Piles.DISCARD])}"
-    )  # Debug
+    lines.append(f"| Discard ({len(player.piles[Piles.DISCARD])}): {pile_display(player.piles[Piles.DISCARD])}")  # Debug
+    return lines
 
 
 ###########################################################################
 def display_overview(player: "Player") -> None:
     """Display turn summary overview to player"""
     player.output("\n")
-    player.output("-" * 50)
-    player.output(f"| Phase: {player.phase.name.title()}")
+    for line in overview_lines(player):
+        player.output(line)
+
+
+###########################################################################
+def overview_lines(player: "Player") -> list[str]:
+    """Return the full player overview block lines."""
+    lines = [
+        "-" * 50,
+        f"| Phase: {player.phase.name.title()}",
+    ]
     for landmark in player.game.landmarks.values():
-        player.output(f"| Landmark {landmark.name}: {landmark.description(player)}")
-    player.output(f"| Tokens: {display_tokens(player)}")
-    display_prophecy_overview(player)
+        lines.append(f"| Landmark {landmark.name}: {landmark.description(player)}")
+    lines.append(f"| Tokens: {display_tokens(player)}")
+    lines.extend(prophecy_overview_lines(player))
     if player.states:
-        player.output(f"| States: {', '.join([_.name for _ in player.states])}")
+        lines.append(f"| States: {', '.join([_.name for _ in player.states])}")
     if player.projects:
-        player.output(f"| Project: {', '.join([p.name for p in player.projects])}")
+        lines.append(f"| Project: {', '.join([p.name for p in player.projects])}")
     if player.artifacts:
-        player.output(f"| Artifacts: {', '.join([_.name for _ in player.artifacts])}")
+        lines.append(f"| Artifacts: {', '.join([_.name for _ in player.artifacts])}")
     for trait_name, trait in player.game.traits.items():
-        player.output(f"| Trait {trait_name} on {trait.card_pile}: {trait.desc}")
+        lines.append(f"| Trait {trait_name} on {trait.card_pile}: {trait.desc}")
     if player.game.ally:
-        player.output(f"| Ally: {player.game.ally.name}: {player.game.ally.description(player)}")
-
-    display_piles_overview(player)
-
-    player.output(f"| Trash ({len(player.game.trash_pile)}): {pile_display(player.game.trash_pile)}")  # Debug
-    player.output(f"| {player.piles[Piles.DISCARD].size()} cards in discard pile")
-    player.output("-" * 50)
+        lines.append(f"| Ally: {player.game.ally.name}: {player.game.ally.description(player)}")
+    lines.extend(piles_overview_lines(player))
+    lines.append(f"| Trash ({len(player.game.trash_pile)}): {pile_display(player.game.trash_pile)}")
+    lines.append(f"| {player.piles[Piles.DISCARD].size()} cards in discard pile")
+    lines.append("-" * 50)
+    return lines
 
 
 # EOF

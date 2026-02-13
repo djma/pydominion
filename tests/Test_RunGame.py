@@ -3,7 +3,7 @@
 
 import unittest
 
-from dominion import Game, rungame
+from dominion import Game, Phase, Prompt, rungame
 
 
 ###############################################################################
@@ -48,6 +48,55 @@ class Test_parse_args(unittest.TestCase):
         g = Game.TestGame(**vars(args))
         g.start_game()
         self.assertIn("Aqueduct", g.landmarks)
+
+    def test_ollama_args(self):
+        """Test parsing Ollama player args"""
+        args = rungame.parse_cli_args(["--ollama", "llama3.2"])
+        self.assertEqual(args.ollama_models, ["llama3.2"])
+
+    def test_ollama_player_setup(self):
+        """Test creating an Ollama-backed LLM player"""
+        args = rungame.parse_cli_args(["--numplayers", "1", "--ollama", "llama3.2"])
+        g = Game.TestGame(**vars(args))
+        g.start_game()
+        self.assertEqual(g.player_list()[0].__class__.__name__, "LLMPlayer")
+
+    def test_openrouter_args(self):
+        """Test parsing OpenRouter player args"""
+        args = rungame.parse_cli_args(["--openrouter", "openai/gpt-4o-mini"])
+        self.assertEqual(args.openrouter_models, ["openai/gpt-4o-mini"])
+
+    def test_openrouter_player_setup(self):
+        """Test creating an OpenRouter-backed LLM player"""
+        args = rungame.parse_cli_args(["--numplayers", "1", "--openrouter", "openai/gpt-4o-mini"])
+        g = Game.TestGame(**vars(args))
+        g.start_game()
+        self.assertEqual(g.player_list()[0].__class__.__name__, "LLMPlayer")
+
+    def test_ollama_user_prompt_uses_textplayer_layout(self):
+        """Test Ollama user prompt includes TextPlayer-like overview and options."""
+        args = rungame.parse_cli_args(["--numplayers", "1", "--ollama", "llama3.2"])
+        g = Game.TestGame(**vars(args))
+        g.start_game()
+        plr = g.player_list()[0]
+        plr.phase = Phase.BUY
+        options = Prompt.choice_selection(plr)
+        prompt = Prompt.generate_prompt(plr)
+        legal = [str(opt["selector"]) for opt in options if opt["selector"] not in (None, "", "-")]
+        user_prompt = plr._textplayer_style_prompt(prompt, options, legal)
+        self.assertIn("############################## Turn", user_prompt)
+        self.assertIn("************ Buy Phase ************", user_prompt)
+        self.assertIn("--------------------------------------------------", user_prompt)
+        self.assertIn("| Phase: Buy", user_prompt)
+        self.assertIn("| Tokens:", user_prompt)
+        self.assertIn("| Hand (", user_prompt)
+        self.assertIn("| Played:", user_prompt)
+        self.assertIn("| Deck Size:", user_prompt)
+        self.assertIn("| Discard (", user_prompt)
+        self.assertIn("| Trash (", user_prompt)
+        self.assertIn("0) End Phase", user_prompt)
+        self.assertIn("What to do (", user_prompt)
+        self.assertIn("Legal selectors:", user_prompt)
 
 
 ###############################################################################

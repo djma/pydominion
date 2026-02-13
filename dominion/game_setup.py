@@ -21,6 +21,7 @@ from dominion.Hex import HexPile, Hex
 from dominion.Landmark import Landmark
 from dominion.Loot import LootPile
 from dominion.Names import playerNames
+from dominion.LLMPlayer import LLMPlayer
 from dominion.Player import Player
 from dominion.Project import Project
 from dominion.Prophecy import Prophecy
@@ -43,6 +44,11 @@ class Flag(StrEnum):
     LOADED_PRIZES = auto()
     LOADED_TRAVELLERS = auto()
     NUM_STACKS = auto()
+    OLLAMA_MODELS = auto()
+    OLLAMA_URL = auto()
+    OPENROUTER_MODELS = auto()
+    OPENROUTER_URL = auto()
+    OPENROUTER_API_KEY = auto()
     RANDOBOT = auto()
     USE_OLD_CARDS = auto()
     USE_PROSPERITY = auto()
@@ -52,7 +58,16 @@ BASE_CARDS = ["Copper", "Silver", "Gold", "Estate", "Duchy", "Province"]
 PATHS: dict[Keys, str] = {}
 INIT_NUMBERS: dict[Keys, int] = {}
 INIT_CARDS: dict[Keys, list[Any]] = {}
-INIT_OPTIONS: dict[Flag, Any] = {Flag.NUM_STACKS: 10, Flag.RANDOBOT: 0, Flag.BOT: False}
+INIT_OPTIONS: dict[Flag, Any] = {
+    Flag.NUM_STACKS: 10,
+    Flag.RANDOBOT: 0,
+    Flag.BOT: False,
+    Flag.OLLAMA_MODELS: [],
+    Flag.OLLAMA_URL: "http://127.0.0.1:11434",
+    Flag.OPENROUTER_MODELS: [],
+    Flag.OPENROUTER_URL: "https://openrouter.ai/api/v1",
+    Flag.OPENROUTER_API_KEY: "",
+}
 FLAGS: dict[Flag, bool] = {}
 
 
@@ -720,7 +735,19 @@ def place_init_card(game: "Game", card: str, available: list[str]) -> Optional[i
 ###########################################################################
 def instantiate_player_class(game: "Game", name: str, use_shelters: bool, player_num: int, the_uuid: str) -> Player:
     """Create the player instances"""
-    if INIT_OPTIONS[Flag.BOT]:
+    llm_model = None
+    llm_provider = None
+    if INIT_OPTIONS[Flag.OLLAMA_MODELS]:
+        plr_class: type[Player] = LLMPlayer
+        llm_model = INIT_OPTIONS[Flag.OLLAMA_MODELS].pop(0)
+        llm_provider = "ollama"
+        name = f"{name}LLM"
+    elif INIT_OPTIONS[Flag.OPENROUTER_MODELS]:
+        plr_class = LLMPlayer
+        llm_model = INIT_OPTIONS[Flag.OPENROUTER_MODELS].pop(0)
+        llm_provider = "openrouter"
+        name = f"{name}LLM"
+    elif INIT_OPTIONS[Flag.BOT]:
         plr_class: type[Player] = BotPlayer
         name = f"{name}Bot"
         INIT_OPTIONS[Flag.BOT] = False
@@ -735,6 +762,11 @@ def instantiate_player_class(game: "Game", name: str, use_shelters: bool, player
         game=game,
         quiet=game.quiet,
         name=name,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        ollama_url=INIT_OPTIONS[Flag.OLLAMA_URL],
+        openrouter_url=INIT_OPTIONS[Flag.OPENROUTER_URL],
+        openrouter_api_key=INIT_OPTIONS[Flag.OPENROUTER_API_KEY],
         heirlooms=game.heirlooms,
         use_shelters=use_shelters,
         number=player_num,
@@ -807,6 +839,11 @@ def parse_args(game: "Game", **args: Any) -> None:
     game.quiet = args.get("quiet", False)
     game.numplayers = args.get("numplayers", 2)
     INIT_OPTIONS[Flag.BOT] = args.get("bot", False)
+    INIT_OPTIONS[Flag.OLLAMA_MODELS] = args.get("ollama_models", [])
+    INIT_OPTIONS[Flag.OLLAMA_URL] = args.get("ollama_url", "http://127.0.0.1:11434")
+    INIT_OPTIONS[Flag.OPENROUTER_MODELS] = args.get("openrouter_models", [])
+    INIT_OPTIONS[Flag.OPENROUTER_URL] = args.get("openrouter_url", "https://openrouter.ai/api/v1")
+    INIT_OPTIONS[Flag.OPENROUTER_API_KEY] = args.get("openrouter_api_key", "")
     INIT_OPTIONS[Flag.RANDOBOT] = args.get("randobot", 0)
     FLAGS[Flag.ALLOW_SHELTERS] = args.get("shelters", True)
 

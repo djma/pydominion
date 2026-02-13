@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+"""Score LLM models by first-turn opening buy choices."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import sys
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from dominion import Game
+from dominion.MatchupLogger import MatchupLogger
+
+STANDARD_KINGDOM = [
+    "Village",
+    "Smithy",
+    "Market",
+    "Militia",
+    "Moat",
+    "Festival",
+    "Laboratory",
+    "Workshop",
+    "Chapel",
+    "Witch",
+]
+
+BAD_BUYS = {"copper", "curse", "estate", "duchy"}
+TARGET_MODELS = [
+    ("ollama", "qwen3:4b"),
+    ("ollama", "qwen3:8b"),
+    ("openrouter", "arcee-ai/trinity-large-preview:free"),
+    ("openrouter", "deepseek/deepseek-r1-0528:free"),
+]
+
+
+def dotenv_value(key: str) -> str:
+    """Read a single key from .env in CWD (or script dir), if present."""
+    candidates = [Path.cwd() / ".env", Path(__file__).resolve().parent / ".env"]
+    seen: set[Path] = set()
+    for env_path in candidates:
+        if env_path in seen:
+            continue
+        seen.add(env_path)
+        if not env_path.is_file():
+            continue
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].strip()
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() != key:
+                continue
+            value = v.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            return value
+    return ""
+
+
+@dataclass
+class ModelScore:
+    provider: str
+    model: str
+    bad_count: int
+    trials: int
+    trial_results: list["TrialResult"] = field(default_factory=list)
+    thinking_tokens_used: int = 0
+
+    @property
+    def score(self) -> float:
+        return 1.0 - (self.bad_count / self.trials)
+
+    @property
+    def thinking_tokens_used_avg(self) -> float:
+        return self.thinking_tokens_used / self.trials
+
+
+@dataclass
+class TrialResult:
+    trial: int
+    seed: int
+    bought_cards: list[str]
+    is_bad: bool
+    thinking_tokens_used: int
+
+    @property
+    def score(self) -> float:
+        return 0.0 if self.is_bad else 1.0
+
+
+###############################################################################
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run 10 first-turn opening-buy trials per Ollama model and score 1 - bad/10"
+    )
+    parser.add_argument("--trials", type=int, default=10, help="Trials per model (default: 10)")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Base seed; trial i uses seed+i for each model (default: 0)",
+    )
+    parser.add_argument("--ollama-url", default="http://127.0.0.1:11434", help="Ollama API base URL")
+    parser.add_argument("--openrouter-url", default="https://openrouter.ai/api/v1", help="OpenRouter API base URL")
+    parser.add_argument(
+        "--openrouter-api-key",
+        default=os.getenv("OPENROUTER_API_KEY", dotenv_value("OPENROUTER_API_KEY")),
+        help="OpenRouter API key (defaults to OPENROUTER_API_KEY env var or .env file)",
+    )
+    parser.add_argument(
+        "--logs-root",
+        default="logs",
+        help="Root directory for logs (each run creates logs/<timestamp>/)",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Show full game output")
+    return parser.parse_args(argv)
+
+
+def run_trial(
+    provider: str,
+    model: str,
+    args: argparse.Namespace,
+    trial_index: int,
+    matchup_logger: MatchupLogger,
+) -> TrialResult:
+    random.seed(args.seed + trial_index)
+    game_args: dict[str, Any] = {
+        "numplayers": 1,
+        "initcards": STANDARD_KINGDOM,
+        "badcards": [],
+        "quiet": not args.verbose,
+        "ollama_url": args.ollama_url,
+        "openrouter_url": args.openrouter_url,
+        "openrouter_api_key": args.openrouter_api_key,
+        "ollama_models": [model] if provider == "ollama" else [],
+        "openrouter_models": [model] if provider == "openrouter" else [],
+        "bot": False,
+        "randobot": 0,
+        "potions": True,
+        "shelters": True,
+    }
+    game = Game.Game(**game_args)
+    game.matchup_logger = matchup_logger
+    matchup_logger.log_matchup_context(
+        model,
+        "trial_start",
+        trial=trial_index + 1,
+        seed=args.seed + trial_index,
+    )
+    game.start_game()
+    game.turn()
+    player = game.player_list()[0]
+    bought_cards = [card.name for card in player.stats.get("bought", [])]
+    bought_lower = {name.lower() for name in bought_cards}
+    is_bad = bool(bought_lower & BAD_BUYS)
+    thinking_tokens_used = int(
+        getattr(player, "llm_total_thinking_tokens_est", getattr(player, "ollama_total_thinking_tokens_est", 0)) or 0
+    )
+    matchup_logger.log_matchup_context(
+        model,
+        "trial_end",
+        trial=trial_index + 1,
+        bought=",".join(bought_cards) if bought_cards else "<none>",
+        bad=is_bad,
+        thinking_tokens_used=thinking_tokens_used,
+    )
+    return TrialResult(
+        trial=trial_index + 1,
+        seed=args.seed + trial_index,
+        bought_cards=bought_cards,
+        is_bad=is_bad,
+        thinking_tokens_used=thinking_tokens_used,
+    )
+
+
+###############################################################################
+def score_model(provider: str, model_name: str, args: argparse.Namespace, matchup_logger: MatchupLogger) -> ModelScore:
+    label = f"{provider}:{model_name}"
+    bad_count = 0
+    thinking_tokens_used = 0
+    trial_results: list[TrialResult] = []
+    for trial_idx in range(args.trials):
+        trial_result = run_trial(provider, model_name, args, trial_idx, matchup_logger)
+        bad_count += int(trial_result.is_bad)
+        thinking_tokens_used += trial_result.thinking_tokens_used
+        trial_results.append(trial_result)
+        bought_text = ",".join(trial_result.bought_cards) if trial_result.bought_cards else "<none>"
+        print(
+            f"[{label}] trial {trial_result.trial}/{args.trials} "
+            f"score={trial_result.score:.1f} "
+            f"bought={bought_text} bad={trial_result.is_bad} "
+            f"thinking_tokens_used={trial_result.thinking_tokens_used}",
+            flush=True,
+        )
+    return ModelScore(
+        provider=provider,
+        model=model_name,
+        bad_count=bad_count,
+        trials=args.trials,
+        trial_results=trial_results,
+        thinking_tokens_used=thinking_tokens_used,
+    )
+
+
+###############################################################################
+def write_summary_file(
+    run_dir: Path,
+    args: argparse.Namespace,
+    models: list[ModelScore],
+    ranked: list[ModelScore],
+) -> Path:
+    summary_path = run_dir / "first_turn_scores_summary.json"
+    payload = {
+        "trials_per_model": args.trials,
+        "seed_base": args.seed,
+        "ollama_url": args.ollama_url,
+        "openrouter_url": args.openrouter_url,
+        "standard_kingdom": STANDARD_KINGDOM,
+        "bad_buys": sorted(BAD_BUYS),
+        "models": [
+            {
+                "model": score.model,
+                "provider": score.provider,
+                "final_score": round(score.score, 6),
+                "bad_count": score.bad_count,
+                "trials": score.trials,
+                "thinking_tokens_used": score.thinking_tokens_used,
+                "thinking_tokens_used_avg": round(score.thinking_tokens_used_avg, 6),
+                "trial_results": [
+                    {
+                        "trial": trial.trial,
+                        "seed": trial.seed,
+                        "trial_score": round(trial.score, 6),
+                        "is_bad": trial.is_bad,
+                        "bought_cards": trial.bought_cards,
+                        "thinking_tokens_used": trial.thinking_tokens_used,
+                    }
+                    for trial in score.trial_results
+                ],
+            }
+            for score in models
+        ],
+        "ranking": [
+            {
+                "rank": rank,
+                "model": score.model,
+                "provider": score.provider,
+                "final_score": round(score.score, 6),
+                "bad_count": score.bad_count,
+                "trials": score.trials,
+                "thinking_tokens_used": score.thinking_tokens_used,
+            }
+            for rank, score in enumerate(ranked, start=1)
+        ],
+    }
+    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return summary_path
+
+
+###############################################################################
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if args.trials <= 0:
+        print("trials must be > 0", file=sys.stderr)
+        return 2
+
+    matchup_logger = MatchupLogger.create_default(Path(args.logs_root))
+    print(f"[logs] writing matchup traces to {matchup_logger.run_dir}", flush=True)
+    matchup_logger.log_matchup_context("RUN", "start", trials=args.trials, seed=args.seed)
+
+    print(f"[setup] standard kingdom: {', '.join(STANDARD_KINGDOM)}", flush=True)
+    print(f"[setup] bad buys: {', '.join(sorted(BAD_BUYS))}", flush=True)
+    print(f"[setup] ollama url: {args.ollama_url}", flush=True)
+    print(f"[setup] openrouter url: {args.openrouter_url}", flush=True)
+    print(f"[setup] base seed: {args.seed}", flush=True)
+    models = TARGET_MODELS[:]
+    labels = [f"{provider}:{name}" for provider, name in models]
+    print(f"[setup] models selected ({len(labels)}): {', '.join(labels)}", flush=True)
+    matchup_logger.log_matchup_context("RUN", "models_selected", count=len(labels), models=",".join(labels))
+
+    print("", flush=True)
+
+    scores: list[ModelScore] = []
+    for provider, model_name in models:
+        label = f"{provider}:{model_name}"
+        print(f"[{label}] starting {args.trials} trials", flush=True)
+        matchup_logger.log_matchup_context(label, "model_start", trials=args.trials)
+        result = score_model(provider, model_name, args, matchup_logger)
+        print(
+            f"[{label}] bad={result.bad_count}/{result.trials} score={result.score:.4f} "
+            f"thinking_tokens_used={result.thinking_tokens_used} "
+            f"(avg={result.thinking_tokens_used_avg:.2f})",
+            flush=True,
+        )
+        matchup_logger.log_matchup_context(
+            label,
+            "model_end",
+            bad=result.bad_count,
+            trials=result.trials,
+            score=f"{result.score:.4f}",
+            thinking_tokens_used=result.thinking_tokens_used,
+            thinking_tokens_used_avg=f"{result.thinking_tokens_used_avg:.2f}",
+        )
+        print("", flush=True)
+        scores.append(result)
+
+    print("=== Model Scores (higher is better) ===", flush=True)
+    ranked = sorted(scores, key=lambda item: (-item.score, item.bad_count, item.model))
+    for idx, item in enumerate(ranked, start=1):
+        print(
+            f"{idx:2d}. {f'{item.provider}:{item.model}':<40} score={item.score:.4f} "
+            f"(bad={item.bad_count}/{item.trials}, thinking_tokens_used={item.thinking_tokens_used})",
+            flush=True,
+        )
+
+    summary_path = write_summary_file(matchup_logger.run_dir, args, scores, ranked)
+    print(f"[summary] wrote {summary_path}", flush=True)
+    matchup_logger.log_matchup_context("RUN", "summary_written", path=str(summary_path))
+
+    matchup_logger.log_matchup_context("RUN", "end", status="ok")
+    return 0
+
+
+###############################################################################
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+# EOF
