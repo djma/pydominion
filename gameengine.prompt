@@ -36,19 +36,6 @@ Option/action model used by engine
 - action=none: non-playable display entry; do not choose unless it is somehow legal.
 - Base card cost reminder: Copper costs 0 coin (not 1); Curse also costs 0.
 
-Turn lifecycle (engine order)
-- start_turn:
-  - resets buys=1, actions=1, coins=0, potions=0.
-  - runs start hooks, duration effects, deferred cards.
-- do_turn phase loop:
-  - ACTION -> BUY -> NIGHT -> CLEANUP
-  - phase can be changed by card effects.
-- cleanup:
-  - discard hand and (usually) played cards.
-  - draw new hand.
-- end_turn:
-  - clears per-turn limits/messages/temporary state.
-
 How options are constructed each phase
 - ACTION phase:
   - selector "0" is always End Phase (quit).

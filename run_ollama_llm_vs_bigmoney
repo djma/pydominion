@@ -1,0 +1,473 @@
+#!/usr/bin/env python3
+"""Evaluate LLMPlayer head-to-head against BigMoney BotPlayer."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import random
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+from dominion import Game
+from dominion.BotPlayer import BotPlayer
+from dominion.LLMPlayer import LLMPlayer
+from dominion.MatchupLogger import MatchupLogger
+
+STANDARD_KINGDOM = [
+    "Village",
+    "Smithy",
+    "Market",
+    "Militia",
+    "Moat",
+    "Festival",
+    "Laboratory",
+    "Workshop",
+    "Chapel",
+    "Witch",
+]
+
+TARGET_MODELS = [
+    # ("ollama", "qwen3:4b"),
+    # ("ollama", "qwen3:8b"),
+    ("openrouter", "arcee-ai/trinity-large-preview:free"),
+    # ("openrouter", "deepseek/deepseek-r1-0528:free"),
+]
+AUTO_SPEND_ALL_TREASURES = True
+
+
+def dotenv_value(key: str) -> str:
+    """Read one key from a local .env file (CWD first, then script dir)."""
+    candidates = [Path.cwd() / ".env", Path(__file__).resolve().parent / ".env"]
+    seen: set[Path] = set()
+    for env_path in candidates:
+        if env_path in seen:
+            continue
+        seen.add(env_path)
+        if not env_path.is_file():
+            continue
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].strip()
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() != key:
+                continue
+            value = v.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            return value
+    return ""
+
+
+@dataclass
+class TrialResult:
+    trial: int
+    seed: int
+    llm_won: bool
+    llm_tied_win: bool
+    timed_out: bool
+    winner_names: list[str]
+    llm_score: int
+    bot_score: int
+    total_game_turns: int
+    rounds: int
+    llm_turns_taken: int
+    bot_turns_taken: int
+    thinking_tokens_used: int
+    first_victory_purchase_turn: Optional[int]
+    first_victory_purchase_game_turn: Optional[int]
+    first_province_purchase_turn: Optional[int]
+    first_province_purchase_game_turn: Optional[int]
+
+
+@dataclass
+class ModelSummary:
+    provider: str
+    model: str
+    trials: int
+    trial_results: list[TrialResult] = field(default_factory=list)
+    wins: int = 0
+    tied_wins: int = 0
+    timed_out_games: int = 0
+    thinking_tokens_used: int = 0
+
+    @property
+    def losses(self) -> int:
+        return self.trials - self.wins
+
+    @property
+    def win_rate(self) -> float:
+        return self.wins / self.trials if self.trials else 0.0
+
+    @property
+    def thinking_tokens_used_avg(self) -> float:
+        return self.thinking_tokens_used / self.trials if self.trials else 0.0
+
+
+###############################################################################
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run full Dominion games where each LLM model plays against BigMoney BotPlayer."
+    )
+    parser.add_argument("--trials", type=int, default=10, help="Games per model (default: 10)")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Base seed; game i uses seed+i for each model (default: 0)",
+    )
+    parser.add_argument("--max-turns", type=int, default=400, help="Turn cap per game (default: 400)")
+    parser.add_argument("--ollama-url", default="http://127.0.0.1:11434", help="Ollama API base URL")
+    parser.add_argument("--openrouter-url", default="https://openrouter.ai/api/v1", help="OpenRouter API base URL")
+    parser.add_argument(
+        "--openrouter-api-key",
+        default=os.getenv("OPENROUTER_API_KEY", dotenv_value("OPENROUTER_API_KEY")),
+        help="OpenRouter API key (defaults to OPENROUTER_API_KEY env var or .env file)",
+    )
+    parser.add_argument(
+        "--logs-root",
+        default="logs",
+        help="Root directory for logs (each run creates logs/<timestamp>/)",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Show full game output")
+    return parser.parse_args(argv)
+
+
+def _safe_mean(values: list[int]) -> Optional[float]:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _find_players(game: Game.Game) -> tuple[LLMPlayer, BotPlayer]:
+    llm_player: Optional[LLMPlayer] = None
+    bot_player: Optional[BotPlayer] = None
+    for player in game.player_list():
+        if isinstance(player, LLMPlayer):
+            llm_player = player
+        elif isinstance(player, BotPlayer):
+            bot_player = player
+    if llm_player is None or bot_player is None:
+        raise RuntimeError("Expected one LLMPlayer and one BotPlayer")
+    return llm_player, bot_player
+
+
+def _winner_names(players: list[Any], scores: dict[str, int]) -> list[str]:
+    max_score = max(scores.values())
+    top_players = [player for player in players if scores[player.name] == max_score]
+    if len(top_players) <= 1:
+        return [top_players[0].name]
+    min_turns = min(player.turn_number for player in top_players)
+    winners = [player.name for player in top_players if player.turn_number == min_turns]
+    return winners
+
+
+def run_trial(
+    provider: str,
+    model: str,
+    args: argparse.Namespace,
+    trial_index: int,
+    matchup_logger: MatchupLogger,
+) -> TrialResult:
+    seed = args.seed + trial_index
+    random.seed(seed)
+    game_args: dict[str, Any] = {
+        "numplayers": 2,
+        "initcards": STANDARD_KINGDOM,
+        "badcards": [],
+        "quiet": not args.verbose,
+        "ollama_url": args.ollama_url,
+        "openrouter_url": args.openrouter_url,
+        "openrouter_api_key": args.openrouter_api_key,
+        "ollama_models": [model] if provider == "ollama" else [],
+        "openrouter_models": [model] if provider == "openrouter" else [],
+        "bot": True,
+        "randobot": 0,
+        "potions": True,
+        "shelters": True,
+    }
+    game = Game.Game(**game_args)
+    game.matchup_logger = matchup_logger
+    label = f"{provider}:{model}"
+    matchup_logger.log_matchup_context(label, "trial_start", trial=trial_index + 1, seed=seed)
+    game.start_game()
+
+    llm_player, bot_player = _find_players(game)
+    llm_player.llm_auto_spend_all_treasures = AUTO_SPEND_ALL_TREASURES
+    first_victory_purchase_turn: Optional[int] = None
+    first_victory_purchase_game_turn: Optional[int] = None
+    first_province_purchase_turn: Optional[int] = None
+    first_province_purchase_game_turn: Optional[int] = None
+
+    turns_played = 0
+    while not game.game_over and turns_played < args.max_turns:
+        game.turn()
+        turns_played += 1
+        if game.current_player is llm_player:
+            bought_cards = llm_player.stats.get("bought", [])
+            if first_victory_purchase_turn is None and any(card.isVictory() for card in bought_cards):
+                first_victory_purchase_turn = llm_player.turn_number
+                first_victory_purchase_game_turn = len(game._turns)
+            if first_province_purchase_turn is None and any(card.name == "Province" for card in bought_cards):
+                first_province_purchase_turn = llm_player.turn_number
+                first_province_purchase_game_turn = len(game._turns)
+
+    timed_out = not game.game_over
+    if timed_out:
+        matchup_logger.log_matchup_context(
+            label,
+            "trial_turn_cap_reached",
+            trial=trial_index + 1,
+            max_turns=args.max_turns,
+        )
+
+    players = game.player_list()
+    scores = {player.name: player.get_score() for player in players}
+    winner_names = _winner_names(players, scores)
+    llm_won = llm_player.name in winner_names
+    llm_tied_win = llm_won and len(winner_names) > 1
+    thinking_tokens_used = int(
+        getattr(llm_player, "llm_total_thinking_tokens_est", getattr(llm_player, "ollama_total_thinking_tokens_est", 0))
+        or 0
+    )
+
+    matchup_logger.log_matchup_context(
+        label,
+        "trial_end",
+        trial=trial_index + 1,
+        llm=llm_player.name,
+        bot=bot_player.name,
+        llm_score=scores[llm_player.name],
+        bot_score=scores[bot_player.name],
+        winner=",".join(winner_names),
+        llm_won=llm_won,
+        llm_tied_win=llm_tied_win,
+        game_turns=len(game._turns),
+        llm_turns=llm_player.turn_number,
+        bot_turns=bot_player.turn_number,
+        thinking_tokens_used=thinking_tokens_used,
+        first_victory_purchase_turn=first_victory_purchase_turn if first_victory_purchase_turn is not None else "none",
+        first_province_purchase_turn=first_province_purchase_turn if first_province_purchase_turn is not None else "none",
+        timed_out=timed_out,
+    )
+    return TrialResult(
+        trial=trial_index + 1,
+        seed=seed,
+        llm_won=llm_won,
+        llm_tied_win=llm_tied_win,
+        timed_out=timed_out,
+        winner_names=winner_names,
+        llm_score=scores[llm_player.name],
+        bot_score=scores[bot_player.name],
+        total_game_turns=len(game._turns),
+        rounds=max(player.turn_number for player in players),
+        llm_turns_taken=llm_player.turn_number,
+        bot_turns_taken=bot_player.turn_number,
+        thinking_tokens_used=thinking_tokens_used,
+        first_victory_purchase_turn=first_victory_purchase_turn,
+        first_victory_purchase_game_turn=first_victory_purchase_game_turn,
+        first_province_purchase_turn=first_province_purchase_turn,
+        first_province_purchase_game_turn=first_province_purchase_game_turn,
+    )
+
+
+def score_model(provider: str, model_name: str, args: argparse.Namespace, matchup_logger: MatchupLogger) -> ModelSummary:
+    summary = ModelSummary(provider=provider, model=model_name, trials=args.trials)
+    label = f"{provider}:{model_name}"
+    for trial_idx in range(args.trials):
+        result = run_trial(provider, model_name, args, trial_idx, matchup_logger)
+        summary.trial_results.append(result)
+        summary.wins += int(result.llm_won)
+        summary.tied_wins += int(result.llm_tied_win)
+        summary.timed_out_games += int(result.timed_out)
+        summary.thinking_tokens_used += result.thinking_tokens_used
+        print(
+            f"[{label}] trial {result.trial}/{args.trials} "
+            f"won={result.llm_won} tied_win={result.llm_tied_win} timed_out={result.timed_out} "
+            f"score={result.llm_score}-{result.bot_score} "
+            f"game_turns={result.total_game_turns} llm_turns={result.llm_turns_taken} "
+            f"thinking_tokens_used={result.thinking_tokens_used} "
+            f"first_victory_turn={result.first_victory_purchase_turn if result.first_victory_purchase_turn is not None else 'n/a'} "
+            f"first_province_turn={result.first_province_purchase_turn if result.first_province_purchase_turn is not None else 'n/a'}",
+            flush=True,
+        )
+    return summary
+
+
+def write_summary_file(
+    run_dir: Path,
+    args: argparse.Namespace,
+    models: list[ModelSummary],
+    ranked: list[ModelSummary],
+) -> Path:
+    summary_path = run_dir / "llm_vs_bigmoney_summary.json"
+    payload = {
+        "trials_per_model": args.trials,
+        "seed_base": args.seed,
+        "max_turns": args.max_turns,
+        "ollama_url": args.ollama_url,
+        "openrouter_url": args.openrouter_url,
+        "standard_kingdom": STANDARD_KINGDOM,
+        "models": [],
+        "ranking": [
+            {
+                "rank": rank,
+                "model": score.model,
+                "provider": score.provider,
+                "wins": score.wins,
+                "trials": score.trials,
+                "win_rate": round(score.win_rate, 6),
+                "tied_wins": score.tied_wins,
+                "losses": score.losses,
+            }
+            for rank, score in enumerate(ranked, start=1)
+        ],
+    }
+
+    for score in models:
+        game_turns = [trial.total_game_turns for trial in score.trial_results]
+        victory_turns = [trial.first_victory_purchase_turn for trial in score.trial_results if trial.first_victory_purchase_turn]
+        province_turns = [trial.first_province_purchase_turn for trial in score.trial_results if trial.first_province_purchase_turn]
+        model_payload = {
+            "model": score.model,
+            "provider": score.provider,
+            "wins": score.wins,
+            "trials": score.trials,
+            "win_rate": round(score.win_rate, 6),
+            "tied_wins": score.tied_wins,
+            "losses": score.losses,
+            "timed_out_games": score.timed_out_games,
+            "thinking_tokens_used": score.thinking_tokens_used,
+            "thinking_tokens_used_avg": round(score.thinking_tokens_used_avg, 6),
+            "avg_game_turns": round(sum(game_turns) / len(game_turns), 6) if game_turns else None,
+            "avg_first_victory_purchase_turn": (
+                round(_safe_mean(victory_turns), 6) if _safe_mean(victory_turns) is not None else None
+            ),
+            "first_victory_purchase_observed_games": len(victory_turns),
+            "avg_first_province_purchase_turn": (
+                round(_safe_mean(province_turns), 6) if _safe_mean(province_turns) is not None else None
+            ),
+            "first_province_purchase_observed_games": len(province_turns),
+            "trial_results": [
+                {
+                    "trial": trial.trial,
+                    "seed": trial.seed,
+                    "llm_won": trial.llm_won,
+                    "llm_tied_win": trial.llm_tied_win,
+                    "timed_out": trial.timed_out,
+                    "winner_names": trial.winner_names,
+                    "llm_score": trial.llm_score,
+                    "bot_score": trial.bot_score,
+                    "total_game_turns": trial.total_game_turns,
+                    "rounds": trial.rounds,
+                    "llm_turns_taken": trial.llm_turns_taken,
+                    "bot_turns_taken": trial.bot_turns_taken,
+                    "thinking_tokens_used": trial.thinking_tokens_used,
+                    "first_victory_purchase_turn": trial.first_victory_purchase_turn,
+                    "first_victory_purchase_game_turn": trial.first_victory_purchase_game_turn,
+                    "first_province_purchase_turn": trial.first_province_purchase_turn,
+                    "first_province_purchase_game_turn": trial.first_province_purchase_game_turn,
+                }
+                for trial in score.trial_results
+            ],
+        }
+        payload["models"].append(model_payload)
+
+    summary_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return summary_path
+
+
+###############################################################################
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    if args.trials <= 0:
+        print("trials must be > 0", file=sys.stderr)
+        return 2
+    if args.max_turns <= 0:
+        print("max-turns must be > 0", file=sys.stderr)
+        return 2
+
+    matchup_logger = MatchupLogger.create_default(Path(args.logs_root))
+    print(f"[logs] writing matchup traces to {matchup_logger.run_dir}", flush=True)
+    matchup_logger.log_matchup_context(
+        "RUN",
+        "start",
+        trials=args.trials,
+        seed=args.seed,
+        max_turns=args.max_turns,
+    )
+
+    print(f"[setup] standard kingdom: {', '.join(STANDARD_KINGDOM)}", flush=True)
+    print(f"[setup] ollama url: {args.ollama_url}", flush=True)
+    print(f"[setup] openrouter url: {args.openrouter_url}", flush=True)
+    print(f"[setup] base seed: {args.seed}", flush=True)
+    print(f"[setup] max turns/game: {args.max_turns}", flush=True)
+    models = TARGET_MODELS[:]
+    labels = [f"{provider}:{name}" for provider, name in models]
+    print(f"[setup] models selected ({len(labels)}): {', '.join(labels)}", flush=True)
+    matchup_logger.log_matchup_context("RUN", "models_selected", count=len(labels), models=",".join(labels))
+
+    print("", flush=True)
+
+    scores: list[ModelSummary] = []
+    for provider, model_name in models:
+        label = f"{provider}:{model_name}"
+        print(f"[{label}] starting {args.trials} games vs BigMoney", flush=True)
+        matchup_logger.log_matchup_context(label, "model_start", trials=args.trials)
+        result = score_model(provider, model_name, args, matchup_logger)
+        print(
+            f"[{label}] wins={result.wins}/{result.trials} win_rate={result.win_rate:.4f} "
+            f"ties={result.tied_wins} losses={result.losses} timed_out={result.timed_out_games} "
+            f"thinking_tokens_used={result.thinking_tokens_used} "
+            f"(avg={result.thinking_tokens_used_avg:.2f})",
+            flush=True,
+        )
+        matchup_logger.log_matchup_context(
+            label,
+            "model_end",
+            wins=result.wins,
+            trials=result.trials,
+            win_rate=f"{result.win_rate:.4f}",
+            tied_wins=result.tied_wins,
+            losses=result.losses,
+            timed_out=result.timed_out_games,
+            thinking_tokens_used=result.thinking_tokens_used,
+            thinking_tokens_used_avg=f"{result.thinking_tokens_used_avg:.2f}",
+        )
+        print("", flush=True)
+        scores.append(result)
+
+    print("=== LLM vs BigMoney Scores (higher is better) ===", flush=True)
+    ranked = sorted(scores, key=lambda item: (-item.wins, -item.win_rate, item.tied_wins, item.model))
+    for idx, item in enumerate(ranked, start=1):
+        print(
+            f"{idx:2d}. {f'{item.provider}:{item.model}':<40} "
+            f"wins={item.wins}/{item.trials} win_rate={item.win_rate:.4f} "
+            f"thinking_tokens_used={item.thinking_tokens_used}",
+            flush=True,
+        )
+
+    summary_path = write_summary_file(matchup_logger.run_dir, args, scores, ranked)
+    print(f"[summary] wrote {summary_path}", flush=True)
+    matchup_logger.log_matchup_context("RUN", "summary_written", path=str(summary_path))
+    matchup_logger.log_matchup_context("RUN", "end", status="ok")
+    return 0
+
+
+###############################################################################
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+# EOF

@@ -576,7 +576,6 @@ class Player:
     def do_turn(self) -> None:
         """Have a turn as the player"""
         self.turn_number += 1
-        print()
         self.output(f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
         stats = f"({self.get_score()} points, {self.count_cards()} cards)"
         if self.skip_turn:
@@ -1309,6 +1308,7 @@ class Player:
             self._buy_card_embargo(new_card)
 
         self.stats["bought"].append(new_card)
+        self.game.purchase_history.append((self.turn_number, self.name, new_card.name))
         self.output(f"Bought {new_card} for {cost} coin")
         self.hook_buy_card(new_card)
         new_card.hook_buy_this_card(game=self.game, player=self)

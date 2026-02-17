@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, Optional
 
-from dominion import Prompt
+from dominion import Phase, Prompt
 from dominion.Option import Option
 from dominion.TextPlayer import TextPlayer
 
@@ -67,6 +67,12 @@ class LLMPlayer(TextPlayer):
         self.llm_gameplay_prompt = self._load_prompt(self.llm_gameplay_prompt_path)
 
         self.llm_temperature = float(kwargs.pop("llm_temperature", kwargs.pop("ollama_temperature", 0.1)))
+        self.llm_auto_spend_all_treasures = self._coerce_bool(
+            kwargs.pop(
+                "llm_auto_spend_all_treasures",
+                kwargs.pop("ollama_auto_spend_all_treasures", kwargs.pop("auto_spend_all_treasures", False)),
+            )
+        )
 
         self.llm_calls = 0
         self.llm_failures = 0
@@ -97,6 +103,9 @@ class LLMPlayer(TextPlayer):
         available = [opt for opt in options if opt["selector"] not in (None, "", "-")]
         if not available:
             raise RuntimeError("LLMPlayer received no selectable options")
+        spend_all = self._select_spend_all_treasures(available)
+        if spend_all is not None:
+            return spend_all
         if len(available) == 1:
             return available[0]
 
@@ -438,6 +447,15 @@ class LLMPlayer(TextPlayer):
         return None
 
     ###########################################################################
+    def _select_spend_all_treasures(self, legal_options: list[Option]) -> Optional[Option]:
+        if not self.llm_auto_spend_all_treasures or self.phase != Phase.BUY:
+            return None
+        for opt in legal_options:
+            if opt["verb"] == "Spend all treasures":
+                return opt
+        return None
+
+    ###########################################################################
     def _textplayer_style_prompt(self, prompt: str, options: list[Option], legal_selectors: list[str]) -> str:
         stats = f"({self.get_score()} points, {self.count_cards()} cards)"
         phase_name = self.phase.name.title()
@@ -447,6 +465,8 @@ class LLMPlayer(TextPlayer):
             f"************ {phase_name} Phase ************",
             "",
             *Prompt.overview_lines(self),
+            "",
+            *self._purchase_history_lines(),
         ]
         for opt in options:
             lines.append(self.selector_line(opt))
@@ -454,6 +474,18 @@ class LLMPlayer(TextPlayer):
         lines.append(f"Legal selectors: {', '.join(legal_selectors)}")
         lines.append("Choose one selector now.")
         return "\n".join(lines)
+
+    ###########################################################################
+    def _purchase_history_lines(self) -> list[str]:
+        history = list(getattr(self.game, "purchase_history", []))
+        lines = ["Purchase history (all turns, oldest to newest):"]
+        if not history:
+            lines.append("- None yet")
+            return lines
+
+        for turn_number, player_name, card_name in history:
+            lines.append(f"- T{turn_number} {player_name}: {card_name}")
+        return lines
 
     ###########################################################################
     def _record_failure(self, reason: str, detail: str = "") -> None:
@@ -487,6 +519,7 @@ class LLMPlayer(TextPlayer):
         self.ollama_gameengine_prompt = self.llm_gameengine_prompt
         self.ollama_gameplay_prompt_path = self.llm_gameplay_prompt_path
         self.ollama_gameplay_prompt = self.llm_gameplay_prompt
+        self.ollama_auto_spend_all_treasures = self.llm_auto_spend_all_treasures
 
         self.ollama_calls = self.llm_calls
         self.ollama_failures = self.llm_failures
@@ -544,6 +577,19 @@ class LLMPlayer(TextPlayer):
         if not text:
             return 0
         return len(re.findall(r"\S+", text))
+
+    ###########################################################################
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "t", "yes", "y", "on"}:
+                return True
+            if lowered in {"0", "false", "f", "no", "n", "off", ""}:
+                return False
+        return bool(value)
 
     ###########################################################################
     def _start_matchup_llm_log(
