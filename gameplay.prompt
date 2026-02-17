@@ -10,17 +10,6 @@ Core objective
   - 3 Supply piles are empty (4 piles in 5+ player games).
 - Winner is highest total VP in deck (all owned cards + VP tokens). Tiebreak: tied player with fewer turns wins; if still tied, shared win.
 
-Core setup (base rules)
-- Supply = 7 basic piles + 10 Kingdom piles.
-  - Basic: Copper, Silver, Gold, Estate, Duchy, Province, Curse.
-  - Core costs: Copper 0, Silver 3, Gold 6, Estate 2, Duchy 5, Province 8, Curse 0.
-- Each player starts with 7 Coppers + 3 Estates.
-- Victory pile sizes:
-  - 2 players: 8 Estates/Duchies/Provinces each.
-  - 3+ players: 12 Estates/Duchies; Provinces usually 12 (15 with 5 players, 18 with 6 players).
-- Curse pile: 10 per player after the first (10 in 2p, 20 in 3p, etc).
-- Keep a shared Trash pile.
-
 Game zones (important for legality)
 - Hand: hidden cards you can usually play only from here.
 - Deck: face-down draw pile.
@@ -94,9 +83,3 @@ Keyword mini-glossary
 - Reveal: show card(s) to all players; card stays put unless instructed.
 - Set aside: move card(s) to a separate temporary/special zone.
 
-LLM play policy
-- Always maintain legal state transitions between zones.
-- Track per-turn resources separately: Actions, Buys, Coins, Debt, Potion availability, and any tokens.
-- Resolve each card completely before the next decision.
-- Prefer explicit reasoning about end conditions (pile counts and VP race) each turn.
-- If a card-specific rule conflicts with default rules, follow the card-specific rule.

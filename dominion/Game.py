@@ -59,6 +59,7 @@ class Game:
         self.sun_tokens: int = 0
         self.numplayers = 0
         self.specials: dict[str, Any] = {}  # Special areas for specific card related stuff
+        self.purchase_history: list[tuple[int, str, str]] = []
         game_setup.parse_args(self, **kwargs)
 
         self.card_mapping = game_setup.get_available_card_classes()
