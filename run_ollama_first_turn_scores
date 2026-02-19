@@ -153,28 +153,19 @@ def run_trial(
     }
     game = Game.Game(**game_args)
     game.matchup_logger = matchup_logger
-    matchup_logger.log_matchup_context(
-        model,
-        "trial_start",
-        trial=trial_index + 1,
-        seed=args.seed + trial_index,
-    )
+    spectator_path = matchup_logger.run_dir / f"spectator_trial{trial_index + 1}.log"
+    spectator_fh = open(spectator_path, "w", encoding="utf-8")
+    game.spectator_file = spectator_fh
     game.start_game()
     game.turn()
+    spectator_fh.close()
+
     player = game.player_list()[0]
     bought_cards = [card.name for card in player.stats.get("bought", [])]
     bought_lower = {name.lower() for name in bought_cards}
     is_bad = bool(bought_lower & BAD_BUYS)
     thinking_tokens_used = int(
         getattr(player, "llm_total_thinking_tokens_est", getattr(player, "ollama_total_thinking_tokens_est", 0)) or 0
-    )
-    matchup_logger.log_matchup_context(
-        model,
-        "trial_end",
-        trial=trial_index + 1,
-        bought=",".join(bought_cards) if bought_cards else "<none>",
-        bad=is_bad,
-        thinking_tokens_used=thinking_tokens_used,
     )
     return TrialResult(
         trial=trial_index + 1,
@@ -278,8 +269,6 @@ def main(argv: list[str] | None = None) -> int:
 
     matchup_logger = MatchupLogger.create_default(Path(args.logs_root))
     print(f"[logs] writing matchup traces to {matchup_logger.run_dir}", flush=True)
-    matchup_logger.log_matchup_context("RUN", "start", trials=args.trials, seed=args.seed)
-
     print(f"[setup] standard kingdom: {', '.join(STANDARD_KINGDOM)}", flush=True)
     print(f"[setup] bad buys: {', '.join(sorted(BAD_BUYS))}", flush=True)
     print(f"[setup] ollama url: {args.ollama_url}", flush=True)
@@ -288,30 +277,18 @@ def main(argv: list[str] | None = None) -> int:
     models = TARGET_MODELS[:]
     labels = [f"{provider}:{name}" for provider, name in models]
     print(f"[setup] models selected ({len(labels)}): {', '.join(labels)}", flush=True)
-    matchup_logger.log_matchup_context("RUN", "models_selected", count=len(labels), models=",".join(labels))
-
     print("", flush=True)
 
     scores: list[ModelScore] = []
     for provider, model_name in models:
         label = f"{provider}:{model_name}"
         print(f"[{label}] starting {args.trials} trials", flush=True)
-        matchup_logger.log_matchup_context(label, "model_start", trials=args.trials)
         result = score_model(provider, model_name, args, matchup_logger)
         print(
             f"[{label}] bad={result.bad_count}/{result.trials} score={result.score:.4f} "
             f"thinking_tokens_used={result.thinking_tokens_used} "
             f"(avg={result.thinking_tokens_used_avg:.2f})",
             flush=True,
-        )
-        matchup_logger.log_matchup_context(
-            label,
-            "model_end",
-            bad=result.bad_count,
-            trials=result.trials,
-            score=f"{result.score:.4f}",
-            thinking_tokens_used=result.thinking_tokens_used,
-            thinking_tokens_used_avg=f"{result.thinking_tokens_used_avg:.2f}",
         )
         print("", flush=True)
         scores.append(result)
@@ -327,9 +304,6 @@ def main(argv: list[str] | None = None) -> int:
 
     summary_path = write_summary_file(matchup_logger.run_dir, args, scores, ranked)
     print(f"[summary] wrote {summary_path}", flush=True)
-    matchup_logger.log_matchup_context("RUN", "summary_written", path=str(summary_path))
-
-    matchup_logger.log_matchup_context("RUN", "end", status="ok")
     return 0
 
 

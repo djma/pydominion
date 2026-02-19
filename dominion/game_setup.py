@@ -892,6 +892,7 @@ def start_game(
     if game.ally:
         for plr in game.player_list():
             plr.favors.add(1)
+        game.spectator(f"Each player receives 1 Favor from ally {game.ally.name}.")
 
 
 # EOF

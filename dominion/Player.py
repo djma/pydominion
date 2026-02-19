@@ -151,6 +151,16 @@ class Player:
         for card in self.piles[Piles.DECK]:
             card.player = self
 
+        # Log starting deck to spectator log (one line per card type, matching Dominion.games format)
+        deck_contents: dict[str, int] = {}
+        for card in self.piles[Piles.DECK]:
+            deck_contents[card.name] = deck_contents.get(card.name, 0) + 1
+        for name, count in sorted(deck_contents.items()):
+            if count == 1:
+                self.game.spectator(f"{self.name} starts with a {name}.")
+            else:
+                self.game.spectator(f"{self.name} starts with {count} {name}s.")
+
         self.piles[Piles.DECK].shuffle()
 
     ###########################################################################
@@ -196,6 +206,7 @@ class Player:
             (f"Keep {src}", False),
             (f"Replace with a {replace_with}?", True),
         ):
+            self.game.spectator(f"{self.name} exchanges {src} for {replace_with}.")
             self.replace_card(src, replace_with, destination=Piles.HAND)
 
     ###########################################################################
@@ -228,6 +239,7 @@ class Player:
             self.output("No more hexes")
             return
         self.output(f"Received {hx} as a hex")
+        self.game.spectator(f"{self.name} receives {hx} as a hex.")
         self.output(hx.description(self))
         for _ in range(hx.cards):
             with contextlib.suppress(NoCardException):
@@ -247,6 +259,7 @@ class Player:
             self.output("No more boons")
             return None
         self.output(f"Received {boon} as a boon")
+        self.game.spectator(f"{self.name} receives {boon} as a boon.")
         self.output(boon.description(self))
         for _ in range(boon.cards):
             with contextlib.suppress(NoCardException):
@@ -293,6 +306,7 @@ class Player:
                 return None
         assert isinstance(card, Card)
         self.output(f"Calling {card} from Reserve")
+        self.game.spectator(f"{self.name} calls {card} from Reserve.")
         self.currcards.append(card)
         card.hook_call_reserve(game=self.game, player=self)
         self.currcards.pop()
@@ -306,6 +320,7 @@ class Player:
         if not card:
             return
         self.game.output(f"{self.name} reveals {card}")
+        self.game.spectator(f"{self.name} reveals {card}.")
         card.hook_reveal_this_card(game=self.game, player=self)
 
     ###########################################################################
@@ -317,6 +332,7 @@ class Player:
             self.output(f"{card} already in trash")
             return
         self.stats["trashed"].append(card)
+        self.game.spectator(f"{self.name} trashes {card}.")
         trash_opts: dict[OptionKeys, Any] = {}
         trash_opts |= card.hook_trash_this_card(game=self.game, player=self)
         if trash_opts.get(OptionKeys.TRASH, True):
@@ -392,6 +408,10 @@ class Player:
         self.add_card(card, Piles.HAND)
         if verbose:
             self.output(f"{verb} {card}")
+        
+        # Drawing a card is Private to player
+        #self.game.spectator(f"{self.name} draws {card}.")
+
         return card
 
     ###########################################################################
@@ -401,6 +421,7 @@ class Player:
             self.output("No more cards to use")
             raise NoCardException
         self.output(f"Shuffling Pile of {num_cards} cards")
+        self.game.spectator(f"{self.name} shuffles their deck.")
         for card in self.relevant_cards():
             self.currcards.append(card)
             card.hook_pre_shuffle(game=self.game, player=self)
@@ -577,9 +598,11 @@ class Player:
         """Have a turn as the player"""
         self.turn_number += 1
         self.output(f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
+        self.game.spectator(f"Turn {self.turn_number} - {self.name}")
         stats = f"({self.get_score()} points, {self.count_cards()} cards)"
         if self.skip_turn:
             self.skip_turn = False
+            self.game.spectator(f"{self.name} skips a Turn.")
             return
         self.output(f"{self.name}'s Turn {stats}")
         self.phase = Phase.ACTION
@@ -611,6 +634,7 @@ class Player:
         if not nights:
             return
         self.output("************ Night Phase ************")
+        self.game.spectator(f"{self.name} begins their night phase.")
         while True:
             Prompt.display_overview(self)
             options = Prompt.choice_selection(self)
@@ -639,6 +663,7 @@ class Player:
     def buy_phase(self) -> None:
         """Do the Buy phase"""
         self.output("************ Buy Phase ************")
+        self.game.spectator(f"{self.name} begins their buy phase.")
         self.hook_pre_buy()
         while True:
             Prompt.display_overview(self)
@@ -671,6 +696,7 @@ class Player:
     ###########################################################################
     def cleanup_phase(self) -> None:
         """Cleanup Phase"""
+        self.game.spectator(f"{self.name} begins cleanup phase.")
         # Save the cards we had so that the hook_end_turn has something to apply against
         options: dict[OptionKeys, Any] = {}
         self.had_cards = (
@@ -711,6 +737,7 @@ class Player:
         """Payback debt"""
         payback = min(self.coins.get(), self.debt.get())
         self.output(f"Paying back {payback} debt")
+        self.game.spectator(f"{self.name} pays off {payback} debt.")
         self.coins -= payback
         self.debt -= payback
 
@@ -753,6 +780,7 @@ class Player:
         if reason not in self.score:
             self.score[reason] = 0
         self.score[reason] += points
+        self.game.spectator(f"{self.name} receives {points} VP from {reason}.")
 
     ###########################################################################
     def all_cards(self) -> PlayArea:
@@ -830,6 +858,7 @@ class Player:
         """Perform the defer-pile cards at the start of the turn"""
         for card in self.piles[Piles.DEFER]:
             self.output(f"Playing deferred {card}")
+            self.game.spectator(f"{self.name} plays deferred {card}.")
             self.currcards.append(card)
             self.move_card(card, Piles.HAND)
             self.play_card(card, cost_action=False)
@@ -842,6 +871,7 @@ class Player:
             options: dict[OptionKeys, Any] = {OptionKeys.DESTINATION: Piles.PLAYED}
             if not card.permanent:
                 self.output(f"Playing {card} from duration pile")
+                self.game.spectator(f"{self.name} resolves {card} from duration.")
             self.currcards.append(card)
             upd_opts = card.duration(game=self.game, player=self)
             if isinstance(upd_opts, dict):
@@ -875,6 +905,7 @@ class Player:
         self.coffers -= 1
         self.coins += 1
         self.output("Spent a coffer")
+        self.game.spectator(f"{self.name} spends a coffer. (+$1)")
 
     ###########################################################################
     def spend_villager(self) -> None:
@@ -885,6 +916,7 @@ class Player:
         self.villagers -= 1
         self.add_actions(1)
         self.output("Spent a villager")
+        self.game.spectator(f"{self.name} spends a villager. (+1 Action)")
 
     ###########################################################################
     def exile_card_from_supply(self, card_name: str) -> None:
@@ -895,12 +927,14 @@ class Player:
             self.output(f"No more {card_name} in supply")
             return
         self.add_card(card, Piles.EXILE)
+        self.game.spectator(f"{self.name} exiles {card} from the supply.")
 
     ###########################################################################
     def exile_card(self, card: Card) -> None:
         """Send a card to the exile pile"""
         self.debug(card, f"exile_card({card=})")
         self.move_card(card, Piles.EXILE)
+        self.game.spectator(f"{self.name} exiles {card}.")
 
     ###########################################################################
     def end_turn(self) -> None:
@@ -1067,6 +1101,7 @@ class Player:
             return
 
         self.output(f"Playing {card}")
+        self.game.spectator(f"{self.name} plays {card}.")
         self.currcards.append(card)
         options |= self._hook_pre_play(card)
         options |= self.hook_all_players_pre_play(card)
@@ -1108,6 +1143,7 @@ class Player:
             self.output("Not enough actions")
             return
         self.output(f"Playing {way.name} instead of {card}")
+        self.game.spectator(f"{self.name} uses {way.name} with {card}.")
         self.card_benefits(way)
         new_opts = way.special_way(game=self.game, player=self, card=card)
         if isinstance(new_opts, dict):
@@ -1121,10 +1157,19 @@ class Player:
     def card_benefits(self, card: Card) -> None:
         """Gain the benefits of the card being played - including special()"""
         self.add_actions(card.actions)
-        self.coins += self.hook_spend_value(card, actual=True)
+        coin_value = self.hook_spend_value(card, actual=True)
+        self.coins += coin_value
         self.buys += card.buys
         self.favors += card.favors
         self.potions += card.potion
+        if card.actions:
+            self.game.spectator(f"{self.name} gets +{card.actions} Action{'s' if card.actions != 1 else ''}.")
+        if coin_value:
+            self.game.spectator(f"{self.name} gets +${coin_value}.")
+        if card.buys:
+            self.game.spectator(f"{self.name} gets +{card.buys} Buy{'s' if card.buys != 1 else ''}.")
+        if card.favors:
+            self.game.spectator(f"{self.name} gets +{card.favors} Favor{'s' if card.favors != 1 else ''}.")
 
         modifier = 0
         if self.card_token and card.cards:
@@ -1172,6 +1217,7 @@ class Player:
         destination: Piles = Piles.DISCARD,
         new_card: Optional[Card] = None,
         callhook: bool = True,
+        silent_spectator: bool = False,
     ) -> Card:
         """Add a new card to the players set of cards from a card pile, return the card gained"""
 
@@ -1192,6 +1238,8 @@ class Player:
             raise NoCardException
         self.debug(new_card, f"gain_card({card_name=}, {destination=})")
         self.stats["gained"].append(new_card)
+        if not silent_spectator:
+            self.game.spectator(f"{self.name} gains {new_card}.")
         destination = options.get(OptionKeys.DESTINATION, destination)
 
         if Token.TRASHING in self.which_token(new_card.name):
@@ -1253,6 +1301,8 @@ class Player:
             if card.name == cardname:
                 self.move_card(card, Piles.DISCARD)
                 count += 1
+        if count:
+            self.game.spectator(f"{self.name} un-exiles {count} {cardname}{'s' if count != 1 else ''}.")
         return count
 
     ###########################################################################
@@ -1261,6 +1311,7 @@ class Player:
         options = [(f"Spend {i} more", i) for i in range(self.coins.get() + 1)]
         ans = self.plr_choose_options("How much do you wish to overpay?", *options)
         if ans > 0:
+            self.game.spectator(f"{self.name} overpays by ${ans} for {card}.")
             card.hook_overpay(game=self.game, player=self, amount=ans)
             self.coins -= ans
 
@@ -1291,7 +1342,7 @@ class Player:
             return
 
         try:
-            new_card = self.gain_card(card.name)
+            new_card = self.gain_card(card.name, silent_spectator=True)
         except NoCardException:
             self.output(f"Couldn't buy card - no more {card.name}s available")
             return
@@ -1310,6 +1361,7 @@ class Player:
         self.stats["bought"].append(new_card)
         self.game.purchase_history.append((self.turn_number, self.name, new_card.name))
         self.output(f"Bought {new_card} for {cost} coin")
+        self.game.spectator(f"{self.name} buys and gains {new_card}.")
         self.hook_buy_card(new_card)
         new_card.hook_buy_this_card(game=self.game, player=self)
         self.hook_all_players_buy_card(new_card)
@@ -1324,6 +1376,7 @@ class Player:
                 self.output("No more Curses")
             else:
                 self.output("Gained a Curse from embargo")
+                self.game.spectator(f"{self.name} gains a Curse from embargo on {new_card}.")
 
     ###########################################################################
     def hook_all_players_buy_card(self, card: Card) -> None:
@@ -1421,6 +1474,7 @@ class Player:
             if crd.has_defense():
                 if verbose:
                     attacker.output(f"Player {self.name} is defended")
+                    self.game.spectator(f"{self.name} reveals {crd} as a reaction.")
                 return True
         return False
 
@@ -1475,6 +1529,7 @@ class Player:
         self.coins -= project.cost
         self.debt += project.debtcost
         self.buys += project.buys
+        self.game.spectator(f"{self.name} buys project {project.name}.")
         self.assign_project(project.name)
 
     ###########################################################################
@@ -1495,6 +1550,7 @@ class Player:
         self.debt += event.debtcost
         self.buys += event.buys
         self.output(f"Using event {event}")
+        self.game.spectator(f"{self.name} buys {event}.")
         self.currcards.append(event)
         event.special(game=self.game, player=self)
         self.currcards.pop()
@@ -1800,6 +1856,7 @@ class Player:
                         player.states.remove(st)
                         break
         self.states.append(state_card)
+        self.game.spectator(f"{self.name} receives state {state}.")
 
     ###########################################################################
     def assign_artifact(self, artifact: str) -> None:
@@ -1815,6 +1872,7 @@ class Player:
         # If we already have it don't get it again
         if artifact_card not in self.artifacts:
             self.artifacts.append(artifact_card)
+            self.game.spectator(f"{self.name} takes the {artifact} artifact.")
 
     ###########################################################################
     def assign_project(self, project: str) -> bool:
@@ -1855,6 +1913,7 @@ class Player:
         discard = self.card_sel(num=num, anynum=any_number, verbs=("Discard", "Undiscard"), **kwargs)
         for card in discard:
             self.output(f"Discarding {card}")
+            self.game.spectator(f"{self.name} discards {card}.")
             self.discard_card(card)
         return discard
 

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import shutil
+import textwrap
 import json
 import os
+import random
 import re
 import time
 import urllib.error
@@ -11,12 +14,13 @@ import urllib.request
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, Optional
 
-from dominion import Phase, Prompt
+from dominion import Phase, Piles
 from dominion.Option import Option
 from dominion.TextPlayer import TextPlayer
 
 if TYPE_CHECKING:
     from dominion.Game import Game
+    from dominion.Player import Player
 
 
 ###############################################################################
@@ -91,8 +95,50 @@ class LLMPlayer(TextPlayer):
         self.llm_total_output_tokens_est = 0
         self.llm_failure_reasons: dict[str, int] = {}
 
+        self.llm_strategy: str = ""
+        self._llm_strategy_generated: bool = False
+
+        self.engine_output_buffer: list[str] = []
+
         self._sync_legacy_ollama_compat()
         super().__init__(game, name=name, quiet=quiet, **kwargs)
+
+    ###########################################################################
+    def output(self, msg: str, end: str = "\n") -> None:
+        prompt = f"{self.name}: "
+        current_card_stack = ""
+        try:
+            for card in self.currcards:
+                current_card_stack += f"{card.name}> "
+        except IndexError:
+            pass
+        self.engine_output_buffer.append(f"{prompt}{current_card_stack}{msg}")
+
+    ###########################################################################
+    def selector_line(self, o: Option) -> str:
+        """Print selector line"""
+        output: list[str] = []
+        output.append(f"{o['selector']})")
+        for key in ("print", "verb", "name"):
+            if o[key]:
+                output.append(o[key])
+        if o["details"]:
+            output.append(f"({o['details']})")
+        if o["name"] and not o["details"] and o["desc"]:
+            output.append("-")
+        if o["notes"]:
+            output.append(o["notes"])
+
+        indent = len(self.name) + 5
+        if self.currcards:
+            indent += len(self.currcards[0].name) + 2
+        # desc = ""
+        # for line in o["desc"].splitlines():
+        #     desc += line.strip() + " "
+        # output.append(desc)
+        text = " ".join(output)
+        (cols, _) = shutil.get_terminal_size((80, 24))
+        return textwrap.fill(text, subsequent_indent=" " * indent, width=cols - indent)
 
     ###########################################################################
     def user_input(self, options: list[Option], prompt: str) -> Option:
@@ -109,7 +155,7 @@ class LLMPlayer(TextPlayer):
         if len(available) == 1:
             return available[0]
 
-        selector = self._query_selector(prompt, available, options)
+        selector = self._query_selector(available, options)
         if selector is None:
             detail = self.llm_last_error or "no selector produced"
             raise RuntimeError(
@@ -127,7 +173,7 @@ class LLMPlayer(TextPlayer):
 
     ###########################################################################
     def _query_selector(
-        self, prompt: str, legal_options: list[Option], display_options: Optional[list[Option]] = None
+        self, legal_options: list[Option], display_options: Optional[list[Option]] = None
     ) -> Optional[str]:
         selectors = [str(opt["selector"]) for opt in legal_options]
         if not selectors:
@@ -143,14 +189,16 @@ class LLMPlayer(TextPlayer):
         )
 
         shown_options = display_options if display_options is not None else legal_options
-        user_prompt = self._textplayer_style_prompt(prompt, shown_options, selectors)
+        user_prompt = self._build_llm_turn_prompt(shown_options, selectors)
 
         llm_call_ref = self._start_matchup_llm_log(
-            prompt=prompt,
             selectors=selectors,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
         )
+
+        pointer = llm_call_ref["pointer"] if llm_call_ref else f"LLM-{self.llm_calls + 1}"
+        self.game.spectator(f"[LLM] {self.name} calling {self.llm_model} ({pointer})")
 
         response = self._call_llm(system_prompt, user_prompt)
         selector: Optional[str] = None
@@ -456,36 +504,109 @@ class LLMPlayer(TextPlayer):
         return None
 
     ###########################################################################
-    def _textplayer_style_prompt(self, prompt: str, options: list[Option], legal_selectors: list[str]) -> str:
+    def _build_llm_turn_prompt(self, options: list[Option], legal_selectors: list[str]) -> str:
+        lines = []
+
+        lines.append( f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
         stats = f"({self.get_score()} points, {self.count_cards()} cards)"
-        phase_name = self.phase.name.title()
-        lines = [
-            f"{'#' * 30} Turn {self.turn_number} {'#' * 30}",
-            f"{self.name}'s Turn {stats}",
-            f"************ {phase_name} Phase ************",
-            "",
-            *Prompt.overview_lines(self),
-            "",
-            *self._purchase_history_lines(),
-        ]
+        lines.append(f"{self.name}'s Turn {stats}")
+
+        # engine_output = "\n".join(self.engine_output_buffer)
+        # self.engine_output_buffer.clear()
+        # lines.append(engine_output + "\n")
+
+        lines.extend(self._score_lines())
+        lines.extend(self._self_card_state_lines())
+
+        for opponent in self._opponents():
+            lines.append("")
+            lines.extend(self._opponent_card_state_lines(opponent))
+        lines.append("")
+        trash = list(self.game.trash_pile)
+        lines.append(f"Trash ({len(trash)}): {self._cards_text(trash)}")
+        lines.append(f"************ {self.phase.name.title()} Phase ************")
+        lines.append("")
         for opt in options:
             lines.append(self.selector_line(opt))
-        lines.append(prompt)
         lines.append(f"Legal selectors: {', '.join(legal_selectors)}")
         lines.append("Choose one selector now.")
         return "\n".join(lines)
 
     ###########################################################################
-    def _purchase_history_lines(self) -> list[str]:
-        history = list(getattr(self.game, "purchase_history", []))
-        lines = ["Purchase history (all turns, oldest to newest):"]
-        if not history:
-            lines.append("- None yet")
-            return lines
-
-        for turn_number, player_name, card_name in history:
-            lines.append(f"- T{turn_number} {player_name}: {card_name}")
+    def _score_lines(self) -> list[str]:
+        lines = [
+            self._current_turn_resources_line(),
+            "",
+        ]
+        lines.append("Scores:")
+        for player in [self, *self._opponents()]:
+            lines.append(f"- {player.name}: {player.get_score()} points")
         return lines
+
+    ###########################################################################
+    def _current_turn_resources_line(self) -> str:
+        parts = [f"Actions={self.actions.get()}", f"Buys={self.buys.get()}", f"Coins={self.coins.get()}"]
+        optional_counts = [
+            ("Potions", self.potions.get()),
+            ("Villagers", self.villagers.get()),
+            ("Debt", self.debt.get()),
+            ("Coffers", self.coffers.get()),
+            ("Favors", self.favors.get()),
+        ]
+        for label, value in optional_counts:
+            if value:
+                parts.append(f"{label}={value}")
+        return "Current turn resources: " + " ".join(parts)
+
+    ###########################################################################
+    def _self_card_state_lines(self) -> list[str]:
+        lines = [f"{self.name} card state:"]
+        for pile_name, pile in self.piles.items():
+            cards = list(pile)
+            if pile_name == Piles.DECK:
+                cards = self._shuffled_cards_for_display(cards, f"{self.name}:deck")
+                label = "Deck (unordered)"
+            else:
+                label = pile_name.name.title()
+            lines.append(f"- {label} ({len(cards)}): {self._cards_text(cards)}")
+        return lines
+
+    ###########################################################################
+    def _opponent_card_state_lines(self, opponent: "Player") -> list[str]:
+        lines = [f"{opponent.name} card state:"]
+
+        for pile_name, pile in opponent.piles.items():
+            if pile_name in (Piles.HAND, Piles.DECK):
+                continue
+            cards = list(pile)
+            lines.append(f"- {pile_name.name.title()} ({len(cards)}): {self._cards_text(cards)}")
+
+        hidden_cards = list(opponent.piles[Piles.HAND]) + list(opponent.piles[Piles.DECK])
+        hidden_cards = self._shuffled_cards_for_display(hidden_cards, f"{opponent.name}:hand_deck")
+        lines.append(f"- Hand+Deck (unordered) ({len(hidden_cards)}): {self._cards_text(hidden_cards)}")
+        return lines
+
+    ###########################################################################
+    def _opponents(self) -> list["Player"]:
+        return [player for player in self.game.player_list() if player is not self]
+
+    ###########################################################################
+    @staticmethod
+    def _cards_text(cards: list[Any]) -> str:
+        if not cards:
+            return "<EMPTY>"
+        return ", ".join(str(card) for card in cards)
+
+    ###########################################################################
+    def _shuffled_cards_for_display(self, cards: list[Any], salt: str) -> list[Any]:
+        shuffled = list(cards)
+        if len(shuffled) <= 1:
+            return shuffled
+        names = ",".join(getattr(card, "name", str(card)) for card in shuffled)
+        seed = f"{salt}|turn={self.turn_number}|phase={self.phase.name}|cards={names}"
+        rng = random.Random(seed)
+        rng.shuffle(shuffled)
+        return shuffled
 
     ###########################################################################
     def _record_failure(self, reason: str, detail: str = "") -> None:
@@ -539,18 +660,99 @@ class LLMPlayer(TextPlayer):
         self.ollama_failure_reasons = self.llm_failure_reasons
 
     ###########################################################################
+    def _card_cost_str(self, card: Any) -> str:
+        parts = []
+        cost = getattr(card, "cost", -1)
+        if cost >= 0:
+            parts.append(f"{cost} coin")
+        if getattr(card, "potcost", False):
+            parts.append("1 potion")
+        debt = getattr(card, "debtcost", 0)
+        if debt:
+            parts.append(f"{debt} debt")
+        return " + ".join(parts) if parts else "unknown"
+
+    ###########################################################################
+    def _cards_in_play_bootstrap(self) -> str:
+        lines = []
+        for pile_name, _ in self.game.get_card_piles():
+            pile = self.game.card_piles.get(pile_name)
+            card = self.game.card_instances.get(pile_name)
+            if card is None:
+                if pile is not None and not pile.is_empty():
+                    card = pile.get_top_card()
+            if card is None:
+                continue
+            description = " ".join(card.description(self).split())
+            if not description:
+                description = "<no description>"
+            cost_str = self._card_cost_str(card)
+            raw_types = getattr(card, "_card_types", None) or []
+            types_str = "-".join(t.name.title() for t in raw_types) if raw_types else "Unknown"
+            pile_count = len(pile) if pile is not None else "?"
+            lines.append(f"{pile_name} [{types_str}, cost {cost_str}, {pile_count} in supply]: {description}")
+        if not lines:
+            return ""
+        return "Playing Dominion with these cards and their effects when played:\n" + "\n".join(lines)
+
+    ###########################################################################
     def _system_bootstrap(self) -> str:
-        prompt_sections = []
+        if not self._llm_strategy_generated:
+            self._generate_strategy()
+
+        prompt_sections: list[str] = []
         if self.llm_gameengine_prompt:
             prompt_sections.append(self.llm_gameengine_prompt)
         if self.llm_gameplay_prompt:
             prompt_sections.append(self.llm_gameplay_prompt)
-        if prompt_sections:
-            return "\n\n".join(prompt_sections)
-        return (
-            "You are a Dominion bot. Make legal moves and maximize end-game VP. "
-            "If card text conflicts with default rules, follow card text."
+        if not prompt_sections:
+            prompt_sections.append(
+                "You are a Dominion bot. Make legal moves and maximize end-game VP. "
+                "If card text conflicts with default rules, follow card text."
+            )
+        if cards_in_play := self._cards_in_play_bootstrap():
+            prompt_sections.append(cards_in_play)
+        if self.llm_strategy:
+            prompt_sections.append(f"Your pre-game strategy for this kingdom:\n{self.llm_strategy}")
+        return "\n\n".join(prompt_sections)
+
+    ###########################################################################
+    def _generate_strategy(self) -> None:
+        """Call the LLM once before the first turn to produce a high-level strategy.
+
+        The strategy is stored in ``self.llm_strategy`` and will be appended to
+        every subsequent system prompt so the model can stay aligned with its
+        own plan throughout the game.
+        """
+        self._llm_strategy_generated = True  # prevent re-entry even on failure
+
+        cards_in_play = self._cards_in_play_bootstrap()
+        if not cards_in_play:
+            return
+
+        system_prompt_parts: list[str] = []
+        if self.llm_gameengine_prompt:
+            system_prompt_parts.append(self.llm_gameengine_prompt)
+        if self.llm_gameplay_prompt:
+            system_prompt_parts.append(self.llm_gameplay_prompt)
+        if not system_prompt_parts:
+            system_prompt_parts.append(
+                "You are a Dominion bot. Make legal moves and maximize end-game VP. "
+                "If card text conflicts with default rules, follow card text."
+            )
+        system_prompt_parts.append(cards_in_play)
+        system_prompt = "\n\n".join(system_prompt_parts)
+
+        user_prompt = (
+            "Before the game begins, analyze the kingdom and produce a concise high-level strategy.\n"
+            "Consider: which cards synergize, what the win condition looks like, "
+            "which cards to prioritize buying, and any key combos or threats to watch for.\n"
+            "Write 3-7 bullet points. Be specific to this kingdom. No JSON — plain text only."
         )
+
+        strategy = self._call_llm(system_prompt, user_prompt)
+        if strategy:
+            self.llm_strategy = strategy.strip()
 
     ###########################################################################
     @staticmethod
@@ -594,7 +796,6 @@ class LLMPlayer(TextPlayer):
     ###########################################################################
     def _start_matchup_llm_log(
         self,
-        prompt: str,
         selectors: list[str],
         system_prompt: str,
         user_prompt: str,
@@ -606,7 +807,6 @@ class LLMPlayer(TextPlayer):
             return logger.start_llm_call(
                 player_name=self.name,
                 model=self.llm_model,
-                prompt=prompt,
                 legal_selectors=selectors,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,

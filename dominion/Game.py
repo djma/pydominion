@@ -4,6 +4,7 @@
 import json
 import random
 import sys
+from io import TextIOBase
 from typing import Optional, Any
 from uuid import UUID
 
@@ -60,6 +61,8 @@ class Game:
         self.numplayers = 0
         self.specials: dict[str, Any] = {}  # Special areas for specific card related stuff
         self.purchase_history: list[tuple[int, str, str]] = []
+        self.spectator_log: list[str] = []
+        self.spectator_file: Optional[TextIOBase] = None
         game_setup.parse_args(self, **kwargs)
 
         self.card_mapping = game_setup.get_available_card_classes()
@@ -116,14 +119,16 @@ class Game:
     ###########################################################################
     def output(self, msg: str) -> None:
         """Send output to all players"""
-        logger = getattr(self, "matchup_logger", None)
-        if logger is not None:
-            try:
-                logger.log_game_output(msg)
-            except OSError:
-                pass
         if not self.quiet:
             sys.stdout.write(f"ALL: {msg}\n")
+
+    ###########################################################################
+    def spectator(self, msg: str) -> None:
+        """Append a public/spectator-visible game event to the spectator log."""
+        self.spectator_log.append(msg)
+        if self.spectator_file is not None:
+            self.spectator_file.write(msg + "\n")
+            self.spectator_file.flush()
 
     ###########################################################################
     def assign_trait(self, trait: str, card_pile: str) -> None:
@@ -222,13 +227,16 @@ class Game:
                 empties.append(pile_name)
         if len(empties) >= 3:
             self.output(f"Game Over: {', '.join(empties)} piles are empty")
+            self.spectator(f"Game Over: {', '.join(empties)} piles are empty")
             return True
         if "Colony" in self.card_piles:
             if self.card_piles["Colony"].is_empty():
                 self.output("Game Over: Colony pile is empty")
+                self.spectator("Game Over: Colony pile is empty")
                 return True
         elif self.card_piles["Province"].is_empty():
             self.output("Game Over: Province pile is empty")
+            self.spectator("Game Over: Province pile is empty")
             return True
         return False
 
@@ -342,6 +350,8 @@ class Game:
             self.output(f"Cards of {plr.name}:")
             for k, v in plr.get_cards().items():
                 self.output(f"{plr.name}: {k}={v}")
+        for name, score in scores.items():
+            self.spectator(f"{name} has {score} points.")
         return scores
 
     ###########################################################################
