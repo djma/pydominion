@@ -73,6 +73,22 @@ class TestLLMPlayerSpendAllTreasures(unittest.TestCase):
 
 
 ###############################################################################
+class TestLLMPlayerSystemBootstrap(unittest.TestCase):
+    """Test LLM bootstrap prompt construction."""
+
+    def test_includes_cards_in_play_descriptions(self):
+        game = Game.TestGame(numplayers=1, ollama_models=["dummy-model"], initcards=["Village"])
+        game.start_game()
+        player = game.player_list()[0]
+
+        bootstrap = player._system_bootstrap()
+
+        self.assertIn("Playing Dominion with these cards:", bootstrap)
+        self.assertIn("Copper: +1 coin", bootstrap)
+        self.assertIn("Village: +1 cards, +2 actions", bootstrap)
+
+
+###############################################################################
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
 

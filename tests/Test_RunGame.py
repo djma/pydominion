@@ -74,7 +74,7 @@ class Test_parse_args(unittest.TestCase):
         self.assertEqual(g.player_list()[0].__class__.__name__, "LLMPlayer")
 
     def test_ollama_user_prompt_uses_textplayer_layout(self):
-        """Test Ollama user prompt includes TextPlayer-like overview and options."""
+        """Test Ollama user prompt includes score/card-state sections and options."""
         args = rungame.parse_cli_args(["--numplayers", "1", "--ollama", "llama3.2"])
         g = Game.TestGame(**vars(args))
         g.start_game()
@@ -83,17 +83,18 @@ class Test_parse_args(unittest.TestCase):
         options = Prompt.choice_selection(plr)
         prompt = Prompt.generate_prompt(plr)
         legal = [str(opt["selector"]) for opt in options if opt["selector"] not in (None, "", "-")]
-        user_prompt = plr._textplayer_style_prompt(prompt, options, legal)
+        user_prompt = plr._build_llm_turn_prompt(prompt, options, legal)
         self.assertIn("############################## Turn", user_prompt)
         self.assertIn("************ Buy Phase ************", user_prompt)
-        self.assertIn("--------------------------------------------------", user_prompt)
-        self.assertIn("| Phase: Buy", user_prompt)
-        self.assertIn("| Tokens:", user_prompt)
-        self.assertIn("| Hand (", user_prompt)
-        self.assertIn("| Played:", user_prompt)
-        self.assertIn("| Deck Size:", user_prompt)
-        self.assertIn("| Discard (", user_prompt)
-        self.assertIn("| Trash (", user_prompt)
+        self.assertIn("Scores:", user_prompt)
+        self.assertIn("Current turn resources: Actions=", user_prompt)
+        self.assertIn(" Buys=", user_prompt)
+        self.assertIn(f"- {plr.name}:", user_prompt)
+        self.assertIn(f"{plr.name} card state:", user_prompt)
+        self.assertIn("- Deck (", user_prompt)
+        self.assertIn("- Hand (", user_prompt)
+        self.assertIn("- Played (", user_prompt)
+        self.assertIn("- Discard (", user_prompt)
         self.assertIn("0) End Phase", user_prompt)
         self.assertIn("What to do (", user_prompt)
         self.assertIn("Legal selectors:", user_prompt)
