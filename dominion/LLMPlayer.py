@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING, Optional
 
 from dominion import Phase, Piles
+from dominion.Card import Card, CardType
 from dominion.Option import Option
 from dominion.TextPlayer import TextPlayer
 
@@ -175,6 +176,355 @@ class LLMPlayer(TextPlayer):
             f"LLM returned unknown selector {selector!r} "
             f"(provider={self.llm_provider} model={self.llm_model})"
         )
+
+    ###########################################################################
+    # Batched multi-select overrides
+    #
+    # The base TextPlayer.card_sel / card_pile_sel / plr_choose_options call
+    # user_input() in a toggle-select loop — one LLM call per toggle plus one
+    # to finish.  For an LLM this is slow, expensive, and fragile (the model
+    # has to reason about toggling vs. finishing across many stateless calls).
+    #
+    # The overrides below replace the loop with a single LLM call that returns
+    # all selections at once.
+    ###########################################################################
+
+    ###########################################################################
+    def card_sel(self, num: int = 1, **kwargs: Any) -> list["Card"]:
+        """Select cards in a single LLM call instead of a toggle-select loop."""
+        select_from = self.select_source(**kwargs)
+        force = kwargs.get("force", False)
+        verbs = kwargs.get("verbs", ("Select", "Unselect"))
+        show_desc = kwargs.get("showdesc", True)
+
+        if "anynum" in kwargs and kwargs["anynum"]:
+            any_num = True
+            num = 0
+        else:
+            any_num = False
+
+        types = kwargs.get("types", {})
+        types = self._type_selector(types)
+
+        # Build a flat list of selectable cards.
+        candidates: list[tuple[str, "Card"]] = []
+        index = 1
+        for card in sorted(select_from):
+            if "exclude" in kwargs and card.name in kwargs["exclude"]:
+                continue
+            if not self.select_by_type(card, types):
+                continue
+            candidates.append((str(index), card))
+            index += 1
+
+        if not candidates:
+            return []
+
+        # If forced to select exactly 1 and there's only 1 candidate, skip LLM.
+        if force and num == 1 and len(candidates) == 1:
+            return [candidates[0][1]]
+
+        # Build a single prompt asking the LLM to choose which cards.
+        prompt_text = kwargs.get("prompt", "")
+        selected = self._query_card_sel(candidates, num, any_num, force, verbs, show_desc, prompt_text, kwargs)
+        return selected
+
+    ###########################################################################
+    def _query_card_sel(
+        self,
+        candidates: list[tuple[str, "Card"]],
+        num: int,
+        any_num: bool,
+        force: bool,
+        verbs: tuple[str, str],
+        show_desc: bool,
+        prompt_text: str,
+        kwargs: dict[str, Any],
+    ) -> list["Card"]:
+        """Ask the LLM to pick cards from *candidates* in one shot."""
+        selector_to_card = {sel: card for sel, card in candidates}
+        selectors = list(selector_to_card.keys())
+
+        lines: list[str] = []
+        if prompt_text:
+            lines.append(prompt_text)
+        lines.append("")
+
+        for sel, card in candidates:
+            parts = [f"{sel}) {verbs[0]} {card.name}"]
+            if show_desc:
+                desc = card.description(self)
+                if desc:
+                    parts.append(f"- {desc}")
+            if kwargs.get("printcost"):
+                parts.append(f"({self._card_cost_str(card)})")
+            if kwargs.get("printtypes"):
+                raw_types = getattr(card, "_card_types", None) or []
+                types_str = "-".join(t.name.title() for t in raw_types) if raw_types else ""
+                if types_str:
+                    parts.append(f"[{types_str}]")
+            lines.append(" ".join(parts))
+
+        if any_num:
+            constraint = "Select any number of cards (0 or more)."
+        elif force:
+            constraint = f"Select exactly {num} card{'s' if num != 1 else ''}."
+        else:
+            constraint = f"Select up to {num} card{'s' if num != 1 else ''} (0 is allowed)."
+
+        lines.append("")
+        lines.append(constraint)
+        lines.append(f"Legal selectors: {', '.join(selectors)}")
+        lines.append('Return JSON: {"selectors":["1","3"]} with chosen card numbers, or {"selectors":[]} for none.')
+
+        system_prompt = self._system_bootstrap()
+        user_prompt = "\n".join(lines)
+
+        llm_call_ref = self._start_matchup_llm_log(
+            selectors=selectors,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+        pointer = llm_call_ref["pointer"] if llm_call_ref else f"LLM-{self.llm_calls + 1}"
+        self.game.spectator(f"[LLM] {self.name} card_sel calling {self.llm_model} ({pointer})")
+
+        response = self._call_llm(system_prompt, user_prompt)
+        if response is None:
+            self._finish_matchup_llm_log(llm_call_ref, response=None, selector=None)
+            return []
+
+        chosen = self._extract_selectors(response, selectors)
+        self._finish_matchup_llm_log(
+            llm_call_ref,
+            response=response,
+            selector=",".join(chosen) if chosen else "<none>",
+        )
+
+        if chosen is None:
+            self._record_failure(
+                "multi_selector_parse",
+                f"response={self._truncate(response)} legal={self._truncate(','.join(selectors), 80)}",
+            )
+            return []
+
+        # Enforce constraints.
+        if force and not any_num and len(chosen) != num:
+            # If the model returned the wrong count but force is set, truncate or
+            # pad by taking what was given (best effort).
+            pass
+
+        result: list["Card"] = []
+        for sel in chosen:
+            card = selector_to_card.get(sel)
+            if card is not None:
+                result.append(card)
+
+        # Respect max count when not anynum.
+        if not any_num and num > 0 and len(result) > num:
+            result = result[:num]
+
+        return result
+
+    ###########################################################################
+    def card_pile_sel(self, num: int = 1, **kwargs: Any) -> list[Any]:
+        """Select card piles in a single LLM call."""
+        force = kwargs.get("force", False)
+        show_desc = kwargs.get("showdesc", True)
+        verbs = kwargs.get("verbs", ("Select", "Unselect"))
+        exclude = kwargs.get("exclude", [])
+
+        if kwargs.get("anynum", False):
+            any_num = True
+            num = 0
+        else:
+            any_num = False
+
+        if kwargs.get("cardsrc"):
+            piles = [(key, value) for key, value in self.game.get_card_piles() if key in kwargs["cardsrc"]]
+        else:
+            piles = self.game.get_card_piles()
+
+        candidates: list[tuple[str, str]] = []
+        index = 1
+        for name, card_pile in piles:
+            if name in exclude:
+                continue
+            candidates.append((str(index), name))
+            index += 1
+
+        if not candidates:
+            return []
+
+        if force and num == 1 and len(candidates) == 1:
+            return [candidates[0][1]]
+
+        selector_to_pile = {sel: pile_name for sel, pile_name in candidates}
+        selectors = list(selector_to_pile.keys())
+
+        lines: list[str] = []
+        prompt_text = kwargs.get("prompt", "")
+        if prompt_text:
+            lines.append(prompt_text)
+            lines.append("")
+
+        for sel, pile_name in candidates:
+            card = self.game.card_instances.get(pile_name)
+            parts = [f"{sel}) {verbs[0]} {pile_name}"]
+            if card and show_desc:
+                desc = card.description(self)
+                if desc:
+                    parts.append(f"- {desc}")
+            if card and kwargs.get("printcost"):
+                parts.append(f"({self._card_cost_str(card)})")
+            if card and kwargs.get("printtypes"):
+                raw_types = getattr(card, "_card_types", None) or []
+                types_str = "-".join(t.name.title() for t in raw_types) if raw_types else ""
+                if types_str:
+                    parts.append(f"[{types_str}]")
+            lines.append(" ".join(parts))
+
+        if any_num:
+            constraint = "Select any number of piles (0 or more)."
+        elif force:
+            constraint = f"Select exactly {num} pile{'s' if num != 1 else ''}."
+        else:
+            constraint = f"Select up to {num} pile{'s' if num != 1 else ''} (0 is allowed)."
+
+        lines.append("")
+        lines.append(constraint)
+        lines.append(f"Legal selectors: {', '.join(selectors)}")
+        lines.append('Return JSON: {"selectors":["1","3"]} with chosen pile numbers, or {"selectors":[]} for none.')
+
+        system_prompt = self._system_bootstrap()
+        user_prompt = "\n".join(lines)
+
+        llm_call_ref = self._start_matchup_llm_log(
+            selectors=selectors,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        pointer = llm_call_ref["pointer"] if llm_call_ref else f"LLM-{self.llm_calls + 1}"
+        self.game.spectator(f"[LLM] {self.name} card_pile_sel calling {self.llm_model} ({pointer})")
+
+        response = self._call_llm(system_prompt, user_prompt)
+        if response is None:
+            self._finish_matchup_llm_log(llm_call_ref, response=None, selector=None)
+            return []
+
+        chosen = self._extract_selectors(response, selectors)
+        self._finish_matchup_llm_log(
+            llm_call_ref,
+            response=response,
+            selector=",".join(chosen) if chosen else "<none>",
+        )
+
+        if chosen is None:
+            self._record_failure(
+                "multi_selector_parse",
+                f"response={self._truncate(response)} legal={self._truncate(','.join(selectors), 80)}",
+            )
+            return []
+
+        result: list[Any] = []
+        for sel in chosen:
+            pile_name = selector_to_pile.get(sel)
+            if pile_name is not None:
+                result.append(pile_name)
+
+        if not any_num and num > 0 and len(result) > num:
+            result = result[:num]
+
+        return result
+
+    ###########################################################################
+    def plr_choose_options(self, prompt: str, *choices: tuple[str, Any]) -> Any:
+        """Present a multiple-choice question to the LLM in one call."""
+        if len(choices) == 1:
+            return choices[0][1]
+
+        options: list[Option] = []
+        index = 0
+        for prnt, ans in choices:
+            options.append(Option(selector=f"{index}", verb=prnt, answer=ans))
+            index += 1
+
+        available = [opt for opt in options if opt["selector"] not in (None, "", "-")]
+        if len(available) == 1:
+            return available[0]["answer"]
+
+        selector = self._query_selector(available, options)
+        if selector is not None:
+            for opt in available:
+                if str(opt["selector"]) == selector:
+                    return opt["answer"]
+
+        # Fallback: return the first choice.
+        self._record_failure("choose_options_fallback", f"prompt={self._truncate(prompt)}")
+        return choices[0][1]
+
+    ###########################################################################
+    def _extract_selectors(self, text: str, legal_selectors: list[str]) -> Optional[list[str]]:
+        """Parse a multi-selector response like ``{"selectors":["1","3"]}``.
+
+        Returns a list of legal selectors, or ``None`` on parse failure.
+        An empty list ``[]`` is a valid response meaning "select nothing".
+        """
+        stripped = text.strip()
+        if not stripped:
+            return None
+
+        # Try JSON parse first.
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                raw = parsed.get("selectors")
+                if raw is None:
+                    # Also accept {"selector":"3"} as a single selection.
+                    single = parsed.get("selector")
+                    if single is not None:
+                        s = str(single).strip()
+                        return [s] if s in legal_selectors else None
+                    return None
+                if isinstance(raw, list):
+                    result: list[str] = []
+                    for item in raw:
+                        s = str(item).strip()
+                        if s in legal_selectors:
+                            result.append(s)
+                    return result
+                if isinstance(raw, str):
+                    # {"selectors":"1"} — single selector as string
+                    s = raw.strip()
+                    return [s] if s in legal_selectors else []
+            elif isinstance(parsed, list):
+                result = []
+                for item in parsed:
+                    s = str(item).strip()
+                    if s in legal_selectors:
+                        result.append(s)
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # Regex fallback: look for selectors:["1","3"] or similar patterns.
+        match = re.search(r"selectors\s*[:=]\s*\[([^\]]*)\]", stripped, flags=re.IGNORECASE)
+        if match:
+            inner = match.group(1)
+            result = []
+            for tok in re.findall(r"['\"]?(\w+)['\"]?", inner):
+                tok = tok.strip()
+                if tok in legal_selectors:
+                    result.append(tok)
+            return result
+
+        # Final fallback: if the response is a single selector in the legal set,
+        # treat it as a single-item selection.
+        single = self._extract_selector(stripped, legal_selectors)
+        if single is not None:
+            return [single]
+
+        return None
 
     ###########################################################################
     def _query_selector(

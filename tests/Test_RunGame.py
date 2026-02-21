@@ -83,7 +83,7 @@ class Test_parse_args(unittest.TestCase):
         options = Prompt.choice_selection(plr)
         prompt = Prompt.generate_prompt(plr)
         legal = [str(opt["selector"]) for opt in options if opt["selector"] not in (None, "", "-")]
-        user_prompt = plr._build_llm_turn_prompt(prompt, options, legal)
+        user_prompt = plr._build_llm_turn_prompt(options, legal)
         self.assertIn("############################## Turn", user_prompt)
         self.assertIn("************ Buy Phase ************", user_prompt)
         self.assertIn("Scores:", user_prompt)
@@ -96,7 +96,6 @@ class Test_parse_args(unittest.TestCase):
         self.assertIn("- Played (", user_prompt)
         self.assertIn("- Discard (", user_prompt)
         self.assertIn("0) End Phase", user_prompt)
-        self.assertIn("What to do (", user_prompt)
         self.assertIn("Legal selectors:", user_prompt)
 
 

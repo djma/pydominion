@@ -389,14 +389,15 @@ class Player:
         cards: list[Card] = []
         for _ in range(num):
             try:
-                if card := self.pickup_card(verbose=verbose, verb=verb):
+                if card := self.pickup_card(verbose=verbose, verb=verb, log_spectator=False):
                     cards.append(card)
             except NoCardException:
                 break
+        self.game.spectator(f"{self.name} draws {num} cards.")
         return cards
 
     ###########################################################################
-    def pickup_card(self, card: Optional[Card] = None, verbose: bool = True, verb: str = "Picked up") -> Card:
+    def pickup_card(self, card: Optional[Card] = None, verbose: bool = True, verb: str = "Picked up", log_spectator: bool = True) -> Card:
         """Pick a card from the deck and put it into the players hand"""
         if card is None:
             card = self.next_card()
@@ -410,7 +411,9 @@ class Player:
             self.output(f"{verb} {card}")
         
         # Drawing a card is Private to player
-        #self.game.spectator(f"{self.name} draws {card}.")
+        # self.game.spectator(f"{self.name} draws {card}.")
+        if log_spectator:
+            self.game.spectator(f"{self.name} draws a card.")
 
         return card
 
