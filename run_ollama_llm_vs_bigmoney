@@ -31,12 +31,17 @@ STANDARD_KINGDOM = [
 ]
 
 TARGET_MODELS = [
+    # 2-tuples: (provider, model) — same model for strategy + execution
+    # 4-tuples: (provider, model, strategy_provider, strategy_model)
     # ("ollama", "qwen3:4b"),
     # ("ollama", "qwen3:8b"),
     # ("ollama", "qwen3:30b"),
     # ("openrouter", "arcee-ai/trinity-large-preview:free"),
     # ("openrouter", "deepseek/deepseek-r1-0528:free"),
-    ("openrouter", "deepseek/deepseek-v3.2"),
+    # ("openrouter", "deepseek/deepseek-v3.2"),
+    ("openrouter", "moonshotai/kimi-k2.5"),
+    # Example with separate strategy LLM:
+    # ("openrouter", "moonshotai/kimi-k2.5", "openrouter", "deepseek/deepseek-r1-0528:free"),
 ]
 AUTO_SPEND_ALL_TREASURES = True
 
@@ -100,6 +105,8 @@ class ModelSummary:
     provider: str
     model: str
     trials: int
+    strategy_provider: str = ""
+    strategy_model: str = ""
     trial_results: list[TrialResult] = field(default_factory=list)
     wins: int = 0
     tied_wins: int = 0
@@ -186,6 +193,8 @@ def run_trial(
     args: argparse.Namespace,
     trial_index: int,
     matchup_logger: MatchupLogger,
+    strategy_provider: str = "",
+    strategy_model: str = "",
 ) -> TrialResult:
     if args.seed is not None:
         seed: Optional[int] = args.seed + trial_index
@@ -217,6 +226,9 @@ def run_trial(
 
     llm_player, bot_player = _find_players(game)
     llm_player.llm_auto_spend_all_treasures = AUTO_SPEND_ALL_TREASURES
+    if strategy_provider and strategy_model:
+        llm_player.strategy_llm_provider = strategy_provider
+        llm_player.strategy_llm_model = strategy_model
 
     # Randomize who goes first. By default the bot goes first (current_player
     # starts at player_list()[0]=LLM, and turn() rotates to the bot before
@@ -279,11 +291,24 @@ def run_trial(
     )
 
 
-def score_model(provider: str, model_name: str, args: argparse.Namespace, matchup_logger: MatchupLogger) -> ModelSummary:
-    summary = ModelSummary(provider=provider, model=model_name, trials=args.trials)
+def score_model(
+    provider: str,
+    model_name: str,
+    args: argparse.Namespace,
+    matchup_logger: MatchupLogger,
+    strategy_provider: str = "",
+    strategy_model: str = "",
+) -> ModelSummary:
+    summary = ModelSummary(
+        provider=provider,
+        model=model_name,
+        trials=args.trials,
+        strategy_provider=strategy_provider,
+        strategy_model=strategy_model,
+    )
     label = f"{provider}:{model_name}"
     for trial_idx in range(args.trials):
-        result = run_trial(provider, model_name, args, trial_idx, matchup_logger)
+        result = run_trial(provider, model_name, args, trial_idx, matchup_logger, strategy_provider, strategy_model)
         summary.trial_results.append(result)
         summary.wins += int(result.llm_won)
         summary.tied_wins += int(result.llm_tied_win)
@@ -345,6 +370,8 @@ def write_summary_file(
         model_payload = {
             "model": score.model,
             "provider": score.provider,
+            "strategy_model": score.strategy_model or None,
+            "strategy_provider": score.strategy_provider or None,
             "wins": score.wins,
             "trials": score.trials,
             "win_rate": round(score.win_rate, 6),
@@ -413,15 +440,25 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[setup] base seed: {args.seed if args.seed is not None else 'random'}", flush=True)
     print(f"[setup] max turns/game: {args.max_turns}", flush=True)
     models = TARGET_MODELS[:]
-    labels = [f"{provider}:{name}" for provider, name in models]
+    labels = []
+    for entry in models:
+        provider, name = entry[0], entry[1]
+        strat_label = f" strategy={entry[2]}:{entry[3]}" if len(entry) >= 4 else ""
+        labels.append(f"{provider}:{name}{strat_label}")
     print(f"[setup] models selected ({len(labels)}): {', '.join(labels)}", flush=True)
     print("", flush=True)
 
     scores: list[ModelSummary] = []
-    for provider, model_name in models:
+    for entry in models:
+        provider, model_name = entry[0], entry[1]
+        strategy_provider = entry[2] if len(entry) >= 4 else ""
+        strategy_model = entry[3] if len(entry) >= 4 else ""
         label = f"{provider}:{model_name}"
-        print(f"[{label}] starting {args.trials} games vs BigMoney", flush=True)
-        result = score_model(provider, model_name, args, matchup_logger)
+        if strategy_provider and strategy_model:
+            print(f"[{label}] starting {args.trials} games vs BigMoney (strategy={strategy_provider}:{strategy_model})", flush=True)
+        else:
+            print(f"[{label}] starting {args.trials} games vs BigMoney", flush=True)
+        result = score_model(provider, model_name, args, matchup_logger, strategy_provider, strategy_model)
         went_second_count = result.trials - result.went_first_count
         print(
             f"[{label}] wins={result.wins}/{result.trials} win_rate={result.win_rate:.4f} "

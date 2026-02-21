@@ -49,6 +49,8 @@ class Flag(StrEnum):
     OPENROUTER_MODELS = auto()
     OPENROUTER_URL = auto()
     OPENROUTER_API_KEY = auto()
+    STRATEGY_LLM_PROVIDER = auto()
+    STRATEGY_LLM_MODEL = auto()
     RANDOBOT = auto()
     USE_OLD_CARDS = auto()
     USE_PROSPERITY = auto()
@@ -67,6 +69,8 @@ INIT_OPTIONS: dict[Flag, Any] = {
     Flag.OPENROUTER_MODELS: [],
     Flag.OPENROUTER_URL: "https://openrouter.ai/api/v1",
     Flag.OPENROUTER_API_KEY: "",
+    Flag.STRATEGY_LLM_PROVIDER: "",
+    Flag.STRATEGY_LLM_MODEL: "",
 }
 FLAGS: dict[Flag, bool] = {}
 
@@ -764,6 +768,8 @@ def instantiate_player_class(game: "Game", name: str, use_shelters: bool, player
         name=name,
         llm_provider=llm_provider,
         llm_model=llm_model,
+        strategy_llm_provider=INIT_OPTIONS[Flag.STRATEGY_LLM_PROVIDER],
+        strategy_llm_model=INIT_OPTIONS[Flag.STRATEGY_LLM_MODEL],
         ollama_url=INIT_OPTIONS[Flag.OLLAMA_URL],
         openrouter_url=INIT_OPTIONS[Flag.OPENROUTER_URL],
         openrouter_api_key=INIT_OPTIONS[Flag.OPENROUTER_API_KEY],
@@ -844,6 +850,8 @@ def parse_args(game: "Game", **args: Any) -> None:
     INIT_OPTIONS[Flag.OPENROUTER_MODELS] = args.get("openrouter_models", [])
     INIT_OPTIONS[Flag.OPENROUTER_URL] = args.get("openrouter_url", "https://openrouter.ai/api/v1")
     INIT_OPTIONS[Flag.OPENROUTER_API_KEY] = args.get("openrouter_api_key", "")
+    INIT_OPTIONS[Flag.STRATEGY_LLM_PROVIDER] = args.get("strategy_llm_provider", "")
+    INIT_OPTIONS[Flag.STRATEGY_LLM_MODEL] = args.get("strategy_llm_model", "")
     INIT_OPTIONS[Flag.RANDOBOT] = args.get("randobot", 0)
     FLAGS[Flag.ALLOW_SHELTERS] = args.get("shelters", True)
 

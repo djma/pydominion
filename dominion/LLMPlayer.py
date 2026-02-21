@@ -46,6 +46,11 @@ class LLMPlayer(TextPlayer):
             else:
                 self.llm_provider = "ollama"
 
+        # Optional separate strategy LLM (used only for pre-game strategy generation).
+        # When not set, the main (execution) LLM is used for both.
+        self.strategy_llm_provider = str(kwargs.pop("strategy_llm_provider", "") or "").strip().lower()
+        self.strategy_llm_model = str(kwargs.pop("strategy_llm_model", "") or "").strip()
+
         self.ollama_url = str(kwargs.pop("ollama_url", "http://127.0.0.1:11434") or "http://127.0.0.1:11434").rstrip(
             "/"
         )
@@ -723,6 +728,9 @@ class LLMPlayer(TextPlayer):
         The strategy is stored in ``self.llm_strategy`` and will be appended to
         every subsequent system prompt so the model can stay aligned with its
         own plan throughout the game.
+
+        When ``strategy_llm_provider`` and ``strategy_llm_model`` are set, those
+        are used for this call instead of the main (execution) LLM.
         """
         self._llm_strategy_generated = True  # prevent re-entry even on failure
 
@@ -744,13 +752,24 @@ class LLMPlayer(TextPlayer):
         system_prompt = "\n\n".join(system_prompt_parts)
 
         user_prompt = (
-            "Before the game begins, analyze the kingdom and produce a concise high-level strategy.\n"
-            "Consider: which cards synergize, what the win condition looks like, "
-            "which cards to prioritize buying, and any key combos or threats to watch for.\n"
-            "Write 3-7 bullet points. Be specific to this kingdom. No JSON — plain text only."
+            "Before the game begins, analyze the kingdom and produce pseudocode strategy that you will follow during the game.\n"
+            "Be specific to this kingdom. No JSON — plain text only."
         )
 
+        # Temporarily swap provider/model if a dedicated strategy LLM is configured.
+        use_strategy_llm = bool(self.strategy_llm_provider and self.strategy_llm_model)
+        if use_strategy_llm:
+            saved_provider, saved_model = self.llm_provider, self.llm_model
+            self.llm_provider = self.strategy_llm_provider
+            self.llm_model = self.strategy_llm_model
+
         strategy = self._call_llm(system_prompt, user_prompt)
+
+        if use_strategy_llm:
+            self.llm_provider = saved_provider
+            self.llm_model = saved_model
+            self._sync_legacy_ollama_compat()
+
         if strategy:
             self.llm_strategy = strategy.strip()
 

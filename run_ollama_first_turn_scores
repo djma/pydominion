@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from dominion import Game
+from dominion.LLMPlayer import LLMPlayer
 from dominion.MatchupLogger import MatchupLogger
 
 STANDARD_KINGDOM = [
@@ -30,6 +31,8 @@ STANDARD_KINGDOM = [
 
 BAD_BUYS = {"copper", "curse", "estate", "duchy"}
 TARGET_MODELS = [
+    # 2-tuples: (provider, model) — same model for strategy + execution
+    # 4-tuples: (provider, model, strategy_provider, strategy_model)
     ("ollama", "qwen3:4b"),
     ("ollama", "qwen3:8b"),
     ("openrouter", "arcee-ai/trinity-large-preview:free"),
@@ -75,6 +78,8 @@ class ModelScore:
     model: str
     bad_count: int
     trials: int
+    strategy_provider: str = ""
+    strategy_model: str = ""
     trial_results: list["TrialResult"] = field(default_factory=list)
     thinking_tokens_used: int = 0
 
@@ -134,6 +139,8 @@ def run_trial(
     args: argparse.Namespace,
     trial_index: int,
     matchup_logger: MatchupLogger,
+    strategy_provider: str = "",
+    strategy_model: str = "",
 ) -> TrialResult:
     random.seed(args.seed + trial_index)
     game_args: dict[str, Any] = {
@@ -157,6 +164,12 @@ def run_trial(
     spectator_fh = open(spectator_path, "w", encoding="utf-8")
     game.spectator_file = spectator_fh
     game.start_game()
+
+    player = game.player_list()[0]
+    if isinstance(player, LLMPlayer) and strategy_provider and strategy_model:
+        player.strategy_llm_provider = strategy_provider
+        player.strategy_llm_model = strategy_model
+
     game.turn()
     spectator_fh.close()
 
@@ -177,13 +190,20 @@ def run_trial(
 
 
 ###############################################################################
-def score_model(provider: str, model_name: str, args: argparse.Namespace, matchup_logger: MatchupLogger) -> ModelScore:
+def score_model(
+    provider: str,
+    model_name: str,
+    args: argparse.Namespace,
+    matchup_logger: MatchupLogger,
+    strategy_provider: str = "",
+    strategy_model: str = "",
+) -> ModelScore:
     label = f"{provider}:{model_name}"
     bad_count = 0
     thinking_tokens_used = 0
     trial_results: list[TrialResult] = []
     for trial_idx in range(args.trials):
-        trial_result = run_trial(provider, model_name, args, trial_idx, matchup_logger)
+        trial_result = run_trial(provider, model_name, args, trial_idx, matchup_logger, strategy_provider, strategy_model)
         bad_count += int(trial_result.is_bad)
         thinking_tokens_used += trial_result.thinking_tokens_used
         trial_results.append(trial_result)
@@ -200,6 +220,8 @@ def score_model(provider: str, model_name: str, args: argparse.Namespace, matchu
         model=model_name,
         bad_count=bad_count,
         trials=args.trials,
+        strategy_provider=strategy_provider,
+        strategy_model=strategy_model,
         trial_results=trial_results,
         thinking_tokens_used=thinking_tokens_used,
     )
@@ -275,15 +297,22 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[setup] openrouter url: {args.openrouter_url}", flush=True)
     print(f"[setup] base seed: {args.seed}", flush=True)
     models = TARGET_MODELS[:]
-    labels = [f"{provider}:{name}" for provider, name in models]
+    labels = []
+    for entry in models:
+        provider, name = entry[0], entry[1]
+        strat_label = f" strategy={entry[2]}:{entry[3]}" if len(entry) >= 4 else ""
+        labels.append(f"{provider}:{name}{strat_label}")
     print(f"[setup] models selected ({len(labels)}): {', '.join(labels)}", flush=True)
     print("", flush=True)
 
     scores: list[ModelScore] = []
-    for provider, model_name in models:
+    for entry in models:
+        provider, model_name = entry[0], entry[1]
+        strategy_provider = entry[2] if len(entry) >= 4 else ""
+        strategy_model = entry[3] if len(entry) >= 4 else ""
         label = f"{provider}:{model_name}"
         print(f"[{label}] starting {args.trials} trials", flush=True)
-        result = score_model(provider, model_name, args, matchup_logger)
+        result = score_model(provider, model_name, args, matchup_logger, strategy_provider, strategy_model)
         print(
             f"[{label}] bad={result.bad_count}/{result.trials} score={result.score:.4f} "
             f"thinking_tokens_used={result.thinking_tokens_used} "
