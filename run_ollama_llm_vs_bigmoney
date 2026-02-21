@@ -42,6 +42,7 @@ TARGET_MODELS = [
     ("openrouter", "moonshotai/kimi-k2.5"),
     # Example with separate strategy LLM:
     # ("openrouter", "moonshotai/kimi-k2.5", "openrouter", "deepseek/deepseek-r1-0528:free"),
+    # ("openrouter", "arcee-ai/trinity-large-preview:free", "openrouter", "moonshotai/kimi-k2.5"),
 ]
 AUTO_SPEND_ALL_TREASURES = True
 
@@ -134,7 +135,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run full Dominion games where each LLM model plays against BigMoney BotPlayer."
     )
-    parser.add_argument("--trials", type=int, default=10, help="Games per model (default: 10)")
+    parser.add_argument("--trials", type=int, default=1, help="Games per model (default: 1)")
     parser.add_argument(
         "--seed",
         type=int,

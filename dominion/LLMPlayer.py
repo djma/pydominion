@@ -185,13 +185,7 @@ class LLMPlayer(TextPlayer):
             return None
         selectors_text = ",".join(selectors)
 
-        system_prompt = (
-            f"{self._system_bootstrap()}\n\n"
-            "Decision protocol for this move:\n"
-            "- Pick exactly one legal selector from the list.\n"
-            "- Return JSON only in this format: {\"selector\":\"x\"}\n"
-            "- Do not include any explanation or extra keys."
-        )
+        system_prompt = self._system_bootstrap()
 
         shown_options = display_options if display_options is not None else legal_options
         user_prompt = self._build_llm_turn_prompt(shown_options, selectors)
@@ -512,7 +506,13 @@ class LLMPlayer(TextPlayer):
     def _build_llm_turn_prompt(self, options: list[Option], legal_selectors: list[str]) -> str:
         lines = []
 
-        lines.append( f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
+        # Kingdom state — moved here from the system prompt so the execution
+        # LLM sees it per-turn while keeping the system prompt compact.
+        if cards_in_play := self._cards_in_play_bootstrap():
+            lines.append(cards_in_play)
+            lines.append("")
+
+        lines.append(f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
         stats = f"({self.get_score()} points, {self.count_cards()} cards)"
         lines.append(f"{self.name}'s Turn {stats}")
 
@@ -702,21 +702,21 @@ class LLMPlayer(TextPlayer):
 
     ###########################################################################
     def _system_bootstrap(self) -> str:
+        """Build a compact system prompt for turn-by-turn execution.
+
+        The heavy gameengine/gameplay prompts and kingdom card list are NOT
+        included here — they are provided to the strategy LLM at game start.
+        During execution the system prompt is kept minimal to reduce token
+        usage; the kingdom card list is included in the user prompt instead.
+        """
         if not self._llm_strategy_generated:
             self._generate_strategy()
 
-        prompt_sections: list[str] = []
-        if self.llm_gameengine_prompt:
-            prompt_sections.append(self.llm_gameengine_prompt)
-        if self.llm_gameplay_prompt:
-            prompt_sections.append(self.llm_gameplay_prompt)
-        if not prompt_sections:
-            prompt_sections.append(
-                "You are a Dominion bot. Make legal moves and maximize end-game VP. "
-                "If card text conflicts with default rules, follow card text."
-            )
-        if cards_in_play := self._cards_in_play_bootstrap():
-            prompt_sections.append(cards_in_play)
+        prompt_sections: list[str] = [
+            "You are a Dominion player. Pick exactly one legal selector per decision.\n"
+            "Return JSON only: {\"selector\":\"<value>\"}\n"
+            "No extra keys, no explanation, no markdown."
+        ]
         if self.llm_strategy:
             prompt_sections.append(f"Your pre-game strategy for this kingdom:\n{self.llm_strategy}")
         return "\n\n".join(prompt_sections)
