@@ -251,6 +251,233 @@ class TestPlrChooseOptionsBatched(unittest.TestCase):
 
 
 ###############################################################################
+class TestConsumeRecentEvents(unittest.TestCase):
+    """Test _consume_recent_events spectator log consumption."""
+
+    def setUp(self):
+        self.g = Game.TestGame(numplayers=1, ollama_models=["dummy-model"])
+        self.g.start_game()
+        self.plr = self.g.player_list()[0]
+        # Skip strategy generation.
+        self.plr._llm_strategy_generated = True
+        self.plr.llm_strategy = ""
+
+    def test_returns_events(self):
+        self.g.spectator("AngelaBot buys and gains Silver.")
+        self.g.spectator("AngelaBot trashes Copper.")
+        events = self.plr._consume_recent_events()
+        self.assertIn("AngelaBot buys and gains Silver.", events)
+        self.assertIn("AngelaBot trashes Copper.", events)
+
+    def test_sub_cursor_advances(self):
+        self.g.spectator("Event A")
+        events1 = self.plr._consume_recent_events()
+        self.assertIn("Event A", events1)
+
+        self.g.spectator("Event B")
+        events2 = self.plr._consume_recent_events()
+        self.assertEqual(events2, ["Event B"])
+
+    def test_turn_level_uses_lookback(self):
+        """Turn-level consume sees events from 2 turns ago via lookback."""
+        # Simulate a 2-player game log.
+        self.g.spectator("Turn 1 - SandraLLM")
+        self.g.spectator("SandraLLM buys and gains Chapel.")
+        self.g.spectator("Turn 1 - PamelaBot")
+        self.g.spectator("PamelaBot buys and gains Silver.")
+        self.g.spectator("Turn 2 - SandraLLM")
+        self.g.spectator("SandraLLM plays Chapel.")
+        self.g.spectator("Turn 2 - PamelaBot")
+        self.g.spectator("PamelaBot buys and gains Gold.")
+        self.g.spectator("Turn 3 - SandraLLM")
+        self.g.spectator("SandraLLM plays Witch.")
+        self.plr.turn_number = 3
+
+        turn_events = self.plr._consume_recent_events(turn_level=True)
+        # current_turn=3, target_turn=1: should see from Turn 1 onward.
+        self.assertIn("Turn 1 - SandraLLM", turn_events)
+        self.assertIn("SandraLLM buys and gains Chapel.", turn_events)
+        self.assertIn("PamelaBot buys and gains Silver.", turn_events)
+        self.assertIn("PamelaBot buys and gains Gold.", turn_events)
+        self.assertIn("SandraLLM plays Witch.", turn_events)
+
+    def test_turn_level_lookback_from_turn_2(self):
+        """On turn 2, target_turn=max(1,0)=1, so we see from Turn 1."""
+        self.g.spectator("Turn 1 - SandraLLM")
+        self.g.spectator("SandraLLM buys and gains Silver.")
+        self.g.spectator("Turn 1 - PamelaBot")
+        self.g.spectator("PamelaBot buys and gains Silver.")
+        self.g.spectator("Turn 2 - SandraLLM")
+        self.plr.turn_number = 2
+
+        turn_events = self.plr._consume_recent_events(turn_level=True)
+        self.assertIn("Turn 1 - SandraLLM", turn_events)
+        self.assertIn("SandraLLM buys and gains Silver.", turn_events)
+        self.assertIn("PamelaBot buys and gains Silver.", turn_events)
+
+    def test_turn_level_survives_sub_consume(self):
+        """Turn-level lookback still sees events eaten by sub-level calls."""
+        self.g.spectator("Turn 1 - SandraLLM")
+        self.g.spectator("PamelaBot buys and gains Gold.")
+        self.plr.turn_number = 2
+
+        # Sub-decision consumes the event (e.g. during card_sel).
+        sub_events = self.plr._consume_recent_events(turn_level=False)
+        self.assertIn("PamelaBot buys and gains Gold.", sub_events)
+
+        # Now something else happens.
+        self.g.spectator("SandraLLM trashes Estate.")
+
+        # Turn-level lookback should still see both (lookback to Turn 1).
+        turn_events = self.plr._consume_recent_events(turn_level=True)
+        self.assertIn("PamelaBot buys and gains Gold.", turn_events)
+        self.assertIn("SandraLLM trashes Estate.", turn_events)
+
+    def test_sub_cursor_synced_after_turn_consume(self):
+        """A turn-level consume advances the sub cursor too."""
+        self.g.spectator("Turn 1 - SandraLLM")
+        self.g.spectator("Event A")
+        self.plr.turn_number = 1
+        self.plr._consume_recent_events(turn_level=True)
+
+        # Sub cursor was synced forward, so this should be empty.
+        events = self.plr._consume_recent_events(turn_level=False)
+        self.assertEqual(events, [])
+
+    def test_filters_llm_markers(self):
+        self.g.spectator("[LLM] Player calling model (LLM-000001)")
+        self.g.spectator("AngelaBot trashes Estate.")
+        events = self.plr._consume_recent_events()
+        self.assertNotIn("[LLM] Player calling model (LLM-000001)", events)
+        self.assertIn("AngelaBot trashes Estate.", events)
+
+    def test_keeps_treasure_plays(self):
+        """Treasure plays and coin gains are preserved in the log."""
+        self.g.spectator("PamelaBot plays Copper.")
+        self.g.spectator("PamelaBot gets +$1.")
+        self.g.spectator("PamelaBot plays Silver.")
+        self.g.spectator("PamelaBot gets +$2.")
+        self.g.spectator("PamelaBot buys and gains Gold.")
+        events = self.plr._consume_recent_events()
+        self.assertIn("PamelaBot plays Copper.", events)
+        self.assertIn("PamelaBot gets +$1.", events)
+        self.assertIn("PamelaBot plays Silver.", events)
+        self.assertIn("PamelaBot gets +$2.", events)
+        self.assertIn("PamelaBot buys and gains Gold.", events)
+
+    def test_keeps_draws_and_phases(self):
+        """Draw-a-card and phase transitions are preserved."""
+        self.g.spectator("SandraLLM draws a card.")
+        self.g.spectator("SandraLLM begins cleanup phase.")
+        self.g.spectator("SandraLLM begins their buy phase.")
+        events = self.plr._consume_recent_events()
+        self.assertIn("SandraLLM draws a card.", events)
+        self.assertIn("SandraLLM begins cleanup phase.", events)
+        self.assertIn("SandraLLM begins their buy phase.", events)
+
+    def test_caps_at_max_lines(self):
+        for i in range(100):
+            self.g.spectator(f"Gain event {i}")
+        events = self.plr._consume_recent_events(max_lines=10)
+        self.assertEqual(len(events), 10)
+        # Should keep the last 10.
+        self.assertEqual(events[0], "Gain event 90")
+        self.assertEqual(events[-1], "Gain event 99")
+
+    def test_empty_sub_log(self):
+        # Consume any setup events first.
+        self.plr._consume_recent_events()
+        events = self.plr._consume_recent_events()
+        self.assertEqual(events, [])
+
+
+###############################################################################
+class TestRecentEventsInPrompt(unittest.TestCase):
+    """Test that recent events appear in the LLM turn prompt."""
+
+    def setUp(self):
+        self.g = Game.TestGame(numplayers=1, ollama_models=["dummy-model"])
+        self.g.start_game()
+        self.plr = self.g.player_list()[0]
+        self.plr._llm_strategy_generated = True
+        self.plr.llm_strategy = ""
+
+    def test_events_appear_in_turn_prompt(self):
+        self.g.spectator("Turn 1 - TestPlayer")
+        self.g.spectator("AngelaBot buys and gains Gold.")
+        self.g.spectator("AngelaBot trashes Copper.")
+        self.plr.turn_number = 2
+        prompt = self.plr._build_llm_turn_prompt([], ["0"])
+        self.assertIn("Recent events:", prompt)
+        self.assertIn("AngelaBot buys and gains Gold.", prompt)
+        self.assertIn("AngelaBot trashes Copper.", prompt)
+
+    def test_events_before_turn_header(self):
+        self.g.spectator("Turn 1 - TestPlayer")
+        self.g.spectator("AngelaBot gains Province.")
+        self.plr.turn_number = 2
+        prompt = self.plr._build_llm_turn_prompt([], ["0"])
+        events_pos = prompt.index("Recent events:")
+        turn_pos = prompt.index("######")
+        self.assertLess(events_pos, turn_pos)
+
+    def test_all_events_preserved_in_prompt(self):
+        """Draws, treasure plays, and phases are all preserved."""
+        self.g.spectator("Turn 1 - TestPlayer")
+        self.g.spectator("PamelaBot plays Copper.")
+        self.g.spectator("PamelaBot gets +$1.")
+        self.g.spectator("PamelaBot draws a card.")
+        self.g.spectator("PamelaBot begins cleanup phase.")
+        self.g.spectator("PamelaBot buys and gains Province.")
+        self.plr.turn_number = 2
+        prompt = self.plr._build_llm_turn_prompt([], ["0"])
+        self.assertIn("PamelaBot buys and gains Province.", prompt)
+        self.assertIn("PamelaBot plays Copper.", prompt)
+        self.assertIn("PamelaBot gets +$1.", prompt)
+        self.assertIn("PamelaBot draws a card.", prompt)
+        self.assertIn("PamelaBot begins cleanup phase.", prompt)
+
+    def test_llm_markers_excluded_from_prompt(self):
+        """[LLM] markers are the only thing filtered."""
+        self.g.spectator("Turn 1 - TestPlayer")
+        self.g.spectator("[LLM] Player calling model (LLM-000001)")
+        self.g.spectator("PamelaBot buys and gains Province.")
+        self.plr.turn_number = 2
+        prompt = self.plr._build_llm_turn_prompt([], ["0"])
+        self.assertNotIn("[LLM]", prompt)
+        self.assertIn("PamelaBot buys and gains Province.", prompt)
+
+    def test_buy_phase_sees_events_after_card_sel(self):
+        """Turn prompt uses lookback, so buy phase sees full turn history.
+
+        Scenario: action phase (turn-level) → card_sel (sub) → buy phase (turn-level).
+        The buy phase prompt still sees the opponent's previous turn via lookback.
+        """
+        self.g.spectator("Turn 1 - PamelaBot")
+        self.g.spectator("PamelaBot buys and gains Gold.")
+        self.g.spectator("Turn 2 - SandraLLM")
+        self.plr.turn_number = 2
+
+        # 1. Action phase decision (turn-level).
+        prompt1 = self.plr._build_llm_turn_prompt([], ["0"])
+        self.assertIn("PamelaBot buys and gains Gold.", prompt1)
+
+        # 2. Card effect fires: SandraLLM plays Chapel → card_sel (sub-level).
+        self.g.spectator("SandraLLM plays Chapel.")
+        self.g.spectator("SandraLLM trashes Copper.")
+        self.g.spectator("SandraLLM trashes Estate.")
+        sub_events = self.plr._consume_recent_events(turn_level=False)
+        self.assertIn("SandraLLM plays Chapel.", sub_events)
+
+        # 3. Buy phase decision (turn-level) — lookback still covers
+        #    the full window from Turn 1.
+        prompt2 = self.plr._build_llm_turn_prompt([], ["0"])
+        self.assertIn("PamelaBot buys and gains Gold.", prompt2)
+        self.assertIn("SandraLLM trashes Copper.", prompt2)
+        self.assertIn("SandraLLM trashes Estate.", prompt2)
+
+
+###############################################################################
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
 

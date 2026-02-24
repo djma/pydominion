@@ -441,12 +441,13 @@ class Player:
             self.output("-Card token reduce draw by one")
             hand_size -= 1
             self.card_token = False
-        while self.piles[Piles.HAND].size() < hand_size:
-            try:
-                self.pickup_card(verb="Dealt")
-            except NoCardException:
-                self.output("Not enough cards to fill hand")
-                break
+        cards_needed = hand_size - self.piles[Piles.HAND].size()
+        if cards_needed <= 0:
+            return
+
+        cards_picked = self.pickup_cards(cards_needed, verb="Dealt")
+        if len(cards_picked) < cards_needed:
+            self.output("Not enough cards to fill hand")
 
     ###########################################################################
     def remove_card(self, card: Card) -> None:

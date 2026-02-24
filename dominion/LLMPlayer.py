@@ -105,6 +105,12 @@ class LLMPlayer(TextPlayer):
         self._llm_strategy_generated: bool = False
 
         self.engine_output_buffer: list[str] = []
+        # Sub-decision cursor — advances on every _consume_recent_events()
+        # call with turn_level=False so that card_sel / card_pile_sel only
+        # see the narrow slice since the previous LLM call.
+        # Turn-level prompts use a lookback approach instead (find the
+        # turn marker ~2 turns ago) so they always have full context.
+        self._spectator_sub_cursor: int = 0
 
         self._sync_legacy_ollama_compat()
         super().__init__(game, name=name, quiet=quiet, **kwargs)
@@ -246,6 +252,11 @@ class LLMPlayer(TextPlayer):
         selectors = list(selector_to_card.keys())
 
         lines: list[str] = []
+        recent_events = self._consume_recent_events()
+        if recent_events:
+            lines.append("Recent events:")
+            lines.extend(recent_events)
+            lines.append("")
         if prompt_text:
             lines.append(prompt_text)
         lines.append("")
@@ -363,6 +374,11 @@ class LLMPlayer(TextPlayer):
         selectors = list(selector_to_pile.keys())
 
         lines: list[str] = []
+        recent_events = self._consume_recent_events()
+        if recent_events:
+            lines.append("Recent events:")
+            lines.extend(recent_events)
+            lines.append("")
         prompt_text = kwargs.get("prompt", "")
         if prompt_text:
             lines.append(prompt_text)
@@ -525,6 +541,71 @@ class LLMPlayer(TextPlayer):
             return [single]
 
         return None
+
+    ###########################################################################
+    _TURN_MARKER_RE = re.compile(r"^Turn (\d+) - ")
+
+    def _consume_recent_events(self, max_lines: int = 80, *, turn_level: bool = False) -> list[str]:
+        """Return spectator log entries covering the last 2 full turns.
+
+        When *turn_level* is ``True`` (used by ``_build_llm_turn_prompt``),
+        the method scans backward through the spectator log to find the
+        turn marker two turns before the current turn and returns
+        everything from that point onward.  This gives the LLM a
+        consistent window of recent game history regardless of how many
+        sub-decisions occurred within the current turn.
+
+        When *turn_level* is ``False`` (used by sub-decisions like
+        ``_query_card_sel``), events are sliced from the **sub cursor**
+        which advances on every call.  Sub-decisions only need the narrow
+        context of what just happened (e.g. "SandraLLM plays Chapel.").
+
+        Only ``[LLM]`` internal markers are filtered out.  All other
+        entries (draws, treasure plays, phase transitions, etc.) are
+        preserved.
+        """
+        log = getattr(self.game, "spectator_log", None)
+        if not log:
+            return []
+        log_len = len(log)
+
+        if turn_level:
+            # Find the start index for "2 turns ago".
+            # We want events starting from 2 full turn cycles before the
+            # current turn.  A turn cycle = one turn for each player.
+            # Walk backward to find the right turn marker.
+            current_turn = getattr(self, "turn_number", 1)
+            # Show the full spectator log from 2 turns ago until now.
+            # E.g. on turn 3 we look back to turn 1 markers, which
+            # covers all players' turn 1, turn 2, and current turn 3.
+            target_turn = max(1, current_turn - 2)
+            start_idx = 0
+            # Walk forward to find the first turn marker at the target.
+            # This ensures we include *all* players' turns at that number
+            # (e.g. "Turn 1 - Sandra" and "Turn 1 - Pamela").
+            for i in range(log_len):
+                m = self._TURN_MARKER_RE.match(log[i])
+                if m and int(m.group(1)) >= target_turn:
+                    start_idx = i
+                    break
+
+            new_entries = log[start_idx:]
+            # Keep sub cursor up to date.
+            self._spectator_sub_cursor = max(self._spectator_sub_cursor, log_len)
+        else:
+            new_entries = log[self._spectator_sub_cursor:]
+            self._spectator_sub_cursor = log_len
+
+        filtered = self._filter_llm_markers(new_entries)
+        if len(filtered) > max_lines:
+            filtered = filtered[-max_lines:]
+        return filtered
+
+    ###########################################################################
+    @staticmethod
+    def _filter_llm_markers(entries: list[str]) -> list[str]:
+        """Remove internal [LLM] markers — everything else is kept."""
+        return [e for e in entries if not e.startswith("[LLM]")]
 
     ###########################################################################
     def _query_selector(
@@ -862,13 +943,15 @@ class LLMPlayer(TextPlayer):
             lines.append(cards_in_play)
             lines.append("")
 
+        recent_events = self._consume_recent_events(turn_level=True)
+        if recent_events:
+            lines.append("Recent events:")
+            lines.extend(recent_events)
+            lines.append("")
+
         lines.append(f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
         stats = f"({self.get_score()} points, {self.count_cards()} cards)"
         lines.append(f"{self.name}'s Turn {stats}")
-
-        # engine_output = "\n".join(self.engine_output_buffer)
-        # self.engine_output_buffer.clear()
-        # lines.append(engine_output + "\n")
 
         lines.extend(self._score_lines())
         lines.extend(self._self_card_state_lines())
