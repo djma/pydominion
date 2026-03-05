@@ -111,6 +111,49 @@ def parse_cli_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--bot", action="store_true", dest="bot", default=False, help="Bot Player")
     parser.add_argument(
+        "--ollama",
+        "--ollama-model",
+        action="append",
+        dest="ollama_models",
+        default=[],
+        help="Add an Ollama-backed LLM player with the given model (repeat for multiple players)",
+    )
+    parser.add_argument(
+        "--ollama-url",
+        default="http://127.0.0.1:11434",
+        help="Ollama API base URL",
+    )
+    parser.add_argument(
+        "--openrouter",
+        "--openrouter-model",
+        action="append",
+        dest="openrouter_models",
+        default=[],
+        help="Add an OpenRouter-backed LLM player with the given model (repeat for multiple players)",
+    )
+    parser.add_argument(
+        "--openrouter-url",
+        default="https://openrouter.ai/api/v1",
+        help="OpenRouter API base URL",
+    )
+    parser.add_argument(
+        "--openrouter-api-key",
+        default=os.getenv("OPENROUTER_API_KEY", ""),
+        help="OpenRouter API key (defaults to OPENROUTER_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--strategy-ollama",
+        default="",
+        dest="strategy_ollama",
+        help="Use a separate Ollama model for pre-game strategy generation (e.g. qwen3:30b)",
+    )
+    parser.add_argument(
+        "--strategy-openrouter",
+        default="",
+        dest="strategy_openrouter",
+        help="Use a separate OpenRouter model for pre-game strategy generation",
+    )
+    parser.add_argument(
         "--randobot",
         type=int,
         dest="randobot",
@@ -151,6 +194,15 @@ def run_game(args: dict[str, Any]) -> None:  # pragma: no cover
     turn = 0
     if args["cardset"]:
         args["initcards"] = load_cardset(args)
+    # Translate strategy model CLI args into strategy_llm_provider/model for game_setup.
+    strategy_ollama = args.pop("strategy_ollama", "")
+    strategy_openrouter = args.pop("strategy_openrouter", "")
+    if strategy_openrouter:
+        args["strategy_llm_provider"] = "openrouter"
+        args["strategy_llm_model"] = strategy_openrouter
+    elif strategy_ollama:
+        args["strategy_llm_provider"] = "ollama"
+        args["strategy_llm_model"] = strategy_ollama
     g = Game.Game(**args)
     g.start_game()
     if args["validate_only"]:

@@ -41,8 +41,6 @@ class TextPlayer(Player):
     ###########################################################################
     def output(self, msg: str, end: str = "\n") -> None:
         self.messages.append(msg)
-        if self.quiet:
-            return
         prompt = f"[{self.colour}]{self.name}[/]: "
         current_card_stack = ""
         try:
@@ -50,6 +48,8 @@ class TextPlayer(Player):
                 current_card_stack += f"{card.name}> "
         except IndexError:
             pass
+        if self.quiet:
+            return
         self.console.print(f"{prompt}{current_card_stack}{msg}", end=end)
 
     ###########################################################################

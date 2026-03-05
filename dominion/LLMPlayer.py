@@ -1,0 +1,1298 @@
+"""Dominion player backed by a configurable LLM provider."""
+
+from __future__ import annotations
+
+import shutil
+import textwrap
+import json
+import os
+import random
+import re
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any, TYPE_CHECKING, Optional
+
+from dominion import Phase, Piles
+from dominion.Card import Card, CardType
+from dominion.Option import Option
+from dominion.TextPlayer import TextPlayer
+
+if TYPE_CHECKING:
+    from dominion.Game import Game
+    from dominion.Player import Player
+
+
+###############################################################################
+###############################################################################
+###############################################################################
+class LLMPlayer(TextPlayer):
+    """Player implementation that uses a configured LLM provider to pick options."""
+
+    def __init__(self, game: "Game", name: str = "", quiet: bool = False, **kwargs: Any) -> None:
+        self.llm_provider = str(kwargs.pop("llm_provider", "") or "").strip().lower()
+        self.llm_model = str(kwargs.pop("llm_model", "") or "").strip()
+
+        legacy_ollama_model = kwargs.pop("ollama_model", None)
+        legacy_openrouter_model = kwargs.pop("openrouter_model", None)
+        if not self.llm_model and legacy_ollama_model:
+            self.llm_model = str(legacy_ollama_model).strip()
+        if not self.llm_model and legacy_openrouter_model:
+            self.llm_model = str(legacy_openrouter_model).strip()
+
+        if not self.llm_provider:
+            if legacy_openrouter_model and not legacy_ollama_model:
+                self.llm_provider = "openrouter"
+            else:
+                self.llm_provider = "ollama"
+
+        # Optional separate strategy LLM (used only for pre-game strategy generation).
+        # When not set, the main (execution) LLM is used for both.
+        self.strategy_llm_provider = str(kwargs.pop("strategy_llm_provider", "") or "").strip().lower()
+        self.strategy_llm_model = str(kwargs.pop("strategy_llm_model", "") or "").strip()
+
+        self.ollama_url = str(kwargs.pop("ollama_url", "http://127.0.0.1:11434") or "http://127.0.0.1:11434").rstrip(
+            "/"
+        )
+        self.openrouter_url = str(
+            kwargs.pop("openrouter_url", "https://openrouter.ai/api/v1") or "https://openrouter.ai/api/v1"
+        ).rstrip("/")
+        self.openrouter_api_key = str(kwargs.pop("openrouter_api_key", "") or os.getenv("OPENROUTER_API_KEY", "")).strip()
+        self.openrouter_referer = str(kwargs.pop("openrouter_referer", "") or "").strip()
+        self.openrouter_title = str(kwargs.pop("openrouter_title", "pydominion") or "").strip()
+
+        gameengine_prompt_path = kwargs.pop("llm_gameengine_prompt_path", kwargs.pop("ollama_gameengine_prompt_path", None))
+        if gameengine_prompt_path is None:
+            self.llm_gameengine_prompt_path = str(Path(__file__).resolve().parents[1] / "gameengine.prompt")
+        else:
+            self.llm_gameengine_prompt_path = str(gameengine_prompt_path)
+        self.llm_gameengine_prompt = self._load_prompt(self.llm_gameengine_prompt_path)
+
+        prompt_path = kwargs.pop("llm_gameplay_prompt_path", kwargs.pop("ollama_gameplay_prompt_path", None))
+        if prompt_path is None:
+            self.llm_gameplay_prompt_path = str(Path(__file__).resolve().parents[1] / "gameplay.prompt")
+        else:
+            self.llm_gameplay_prompt_path = str(prompt_path)
+        self.llm_gameplay_prompt = self._load_prompt(self.llm_gameplay_prompt_path)
+
+        self.llm_temperature = float(kwargs.pop("llm_temperature", kwargs.pop("ollama_temperature", 0.1)))
+        self.llm_auto_spend_all_treasures = self._coerce_bool(
+            kwargs.pop(
+                "llm_auto_spend_all_treasures",
+                kwargs.pop("ollama_auto_spend_all_treasures", kwargs.pop("auto_spend_all_treasures", False)),
+            )
+        )
+
+        self.llm_calls = 0
+        self.llm_failures = 0
+        self.llm_last_error = ""
+        self.llm_last_http_status = ""
+        self.llm_last_latency_ms = -1
+        self.llm_last_thinking_full = ""
+        self.llm_last_output_full = ""
+        self.llm_last_prompt_tokens = 0
+        self.llm_last_eval_tokens = 0
+        self.llm_last_thinking_tokens_est = 0
+        self.llm_last_output_tokens_est = 0
+        self.llm_total_prompt_tokens = 0
+        self.llm_total_eval_tokens = 0
+        self.llm_total_thinking_tokens_est = 0
+        self.llm_total_output_tokens_est = 0
+        self.llm_failure_reasons: dict[str, int] = {}
+
+        self.llm_strategy: str = ""
+        self._llm_strategy_generated: bool = False
+
+        self.engine_output_buffer: list[str] = []
+        # Sub-decision cursor — advances on every _consume_recent_events()
+        # call with turn_level=False so that card_sel / card_pile_sel only
+        # see the narrow slice since the previous LLM call.
+        # Turn-level prompts use a lookback approach instead (find the
+        # turn marker ~2 turns ago) so they always have full context.
+        self._spectator_sub_cursor: int = 0
+
+        self._sync_legacy_ollama_compat()
+        super().__init__(game, name=name, quiet=quiet, **kwargs)
+
+    ###########################################################################
+    def output(self, msg: str, end: str = "\n") -> None:
+        prompt = f"{self.name}: "
+        current_card_stack = ""
+        try:
+            for card in self.currcards:
+                current_card_stack += f"{card.name}> "
+        except IndexError:
+            pass
+        self.engine_output_buffer.append(f"{prompt}{current_card_stack}{msg}")
+
+    ###########################################################################
+    def selector_line(self, o: Option) -> str:
+        """Print selector line"""
+        output: list[str] = []
+        output.append(f"{o['selector']})")
+        for key in ("print", "verb", "name"):
+            if o[key]:
+                output.append(o[key])
+        if o["details"]:
+            output.append(f"({o['details']})")
+        if o["name"] and not o["details"] and o["desc"]:
+            output.append("-")
+        if o["notes"]:
+            output.append(o["notes"])
+
+        indent = len(self.name) + 5
+        if self.currcards:
+            indent += len(self.currcards[0].name) + 2
+        # desc = ""
+        # for line in o["desc"].splitlines():
+        #     desc += line.strip() + " "
+        # output.append(desc)
+        text = " ".join(output)
+        (cols, _) = shutil.get_terminal_size((80, 24))
+        return textwrap.fill(text, subsequent_indent=" " * indent, width=cols - indent)
+
+    ###########################################################################
+    def user_input(self, options: list[Option], prompt: str) -> Option:
+        """Pick one option, usually by querying the configured LLM provider."""
+        for opt in options:
+            assert isinstance(opt, Option), f"user_input {opt=} {type(opt)=}"
+
+        available = [opt for opt in options if opt["selector"] not in (None, "", "-")]
+        if not available:
+            raise RuntimeError("LLMPlayer received no selectable options")
+        spend_all = self._select_spend_all_treasures(available)
+        if spend_all is not None:
+            return spend_all
+        if len(available) == 1:
+            return available[0]
+
+        selector = self._query_selector(available, options)
+        if selector is None:
+            detail = self.llm_last_error or "no selector produced"
+            raise RuntimeError(
+                f"LLM did not return a legal selector "
+                f"(provider={self.llm_provider} model={self.llm_model} detail={detail})"
+            )
+        for opt in available:
+            if str(opt["selector"]) == selector:
+                return opt
+
+        raise RuntimeError(
+            f"LLM returned unknown selector {selector!r} "
+            f"(provider={self.llm_provider} model={self.llm_model})"
+        )
+
+    ###########################################################################
+    # Batched multi-select overrides
+    #
+    # The base TextPlayer.card_sel / card_pile_sel / plr_choose_options call
+    # user_input() in a toggle-select loop — one LLM call per toggle plus one
+    # to finish.  For an LLM this is slow, expensive, and fragile (the model
+    # has to reason about toggling vs. finishing across many stateless calls).
+    #
+    # The overrides below replace the loop with a single LLM call that returns
+    # all selections at once.
+    ###########################################################################
+
+    ###########################################################################
+    def card_sel(self, num: int = 1, **kwargs: Any) -> list["Card"]:
+        """Select cards in a single LLM call instead of a toggle-select loop."""
+        select_from = self.select_source(**kwargs)
+        force = kwargs.get("force", False)
+        verbs = kwargs.get("verbs", ("Select", "Unselect"))
+        show_desc = kwargs.get("showdesc", True)
+
+        if "anynum" in kwargs and kwargs["anynum"]:
+            any_num = True
+            num = 0
+        else:
+            any_num = False
+
+        types = kwargs.get("types", {})
+        types = self._type_selector(types)
+
+        # Build a flat list of selectable cards.
+        candidates: list[tuple[str, "Card"]] = []
+        index = 1
+        for card in sorted(select_from):
+            if "exclude" in kwargs and card.name in kwargs["exclude"]:
+                continue
+            if not self.select_by_type(card, types):
+                continue
+            candidates.append((str(index), card))
+            index += 1
+
+        if not candidates:
+            return []
+
+        # If forced to select exactly 1 and there's only 1 candidate, skip LLM.
+        if force and num == 1 and len(candidates) == 1:
+            return [candidates[0][1]]
+
+        # Build a single prompt asking the LLM to choose which cards.
+        prompt_text = kwargs.get("prompt", "")
+        selected = self._query_card_sel(candidates, num, any_num, force, verbs, show_desc, prompt_text, kwargs)
+        return selected
+
+    ###########################################################################
+    def _query_card_sel(
+        self,
+        candidates: list[tuple[str, "Card"]],
+        num: int,
+        any_num: bool,
+        force: bool,
+        verbs: tuple[str, str],
+        show_desc: bool,
+        prompt_text: str,
+        kwargs: dict[str, Any],
+    ) -> list["Card"]:
+        """Ask the LLM to pick cards from *candidates* in one shot."""
+        selector_to_card = {sel: card for sel, card in candidates}
+        selectors = list(selector_to_card.keys())
+
+        lines: list[str] = []
+        recent_events = self._consume_recent_events()
+        if recent_events:
+            lines.append("Recent events:")
+            lines.extend(recent_events)
+            lines.append("")
+        if prompt_text:
+            lines.append(prompt_text)
+        lines.append("")
+
+        for sel, card in candidates:
+            parts = [f"{sel}) {verbs[0]} {card.name}"]
+            if show_desc:
+                desc = card.description(self)
+                if desc:
+                    parts.append(f"- {desc}")
+            if kwargs.get("printcost"):
+                parts.append(f"({self._card_cost_str(card)})")
+            if kwargs.get("printtypes"):
+                raw_types = getattr(card, "_card_types", None) or []
+                types_str = "-".join(t.name.title() for t in raw_types) if raw_types else ""
+                if types_str:
+                    parts.append(f"[{types_str}]")
+            lines.append(" ".join(parts))
+
+        if any_num:
+            constraint = "Select any number of cards (0 or more)."
+        elif force:
+            constraint = f"Select exactly {num} card{'s' if num != 1 else ''}."
+        else:
+            constraint = f"Select up to {num} card{'s' if num != 1 else ''} (0 is allowed)."
+
+        lines.append("")
+        lines.append(constraint)
+        lines.append(f"Legal selectors: {', '.join(selectors)}")
+        lines.append('Return JSON: {"selectors":["1","3"]} with chosen card numbers, or {"selectors":[]} for none.')
+
+        system_prompt = self._system_bootstrap()
+        user_prompt = "\n".join(lines)
+
+        llm_call_ref = self._start_matchup_llm_log(
+            selectors=selectors,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+        pointer = llm_call_ref["pointer"] if llm_call_ref else f"LLM-{self.llm_calls + 1}"
+        self.game.spectator(f"[LLM] {self.name} card_sel calling {self.llm_model} ({pointer})")
+
+        response = self._call_llm(system_prompt, user_prompt)
+        if response is None:
+            self._finish_matchup_llm_log(llm_call_ref, response=None, selector=None)
+            return []
+
+        chosen = self._extract_selectors(response, selectors)
+        self._finish_matchup_llm_log(
+            llm_call_ref,
+            response=response,
+            selector=",".join(chosen) if chosen else "<none>",
+        )
+
+        if chosen is None:
+            self._record_failure(
+                "multi_selector_parse",
+                f"response={self._truncate(response)} legal={self._truncate(','.join(selectors), 80)}",
+            )
+            return []
+
+        # Enforce constraints.
+        if force and not any_num and len(chosen) != num:
+            # If the model returned the wrong count but force is set, truncate or
+            # pad by taking what was given (best effort).
+            pass
+
+        result: list["Card"] = []
+        for sel in chosen:
+            card = selector_to_card.get(sel)
+            if card is not None:
+                result.append(card)
+
+        # Respect max count when not anynum.
+        if not any_num and num > 0 and len(result) > num:
+            result = result[:num]
+
+        return result
+
+    ###########################################################################
+    def card_pile_sel(self, num: int = 1, **kwargs: Any) -> list[Any]:
+        """Select card piles in a single LLM call."""
+        force = kwargs.get("force", False)
+        show_desc = kwargs.get("showdesc", True)
+        verbs = kwargs.get("verbs", ("Select", "Unselect"))
+        exclude = kwargs.get("exclude", [])
+
+        if kwargs.get("anynum", False):
+            any_num = True
+            num = 0
+        else:
+            any_num = False
+
+        if kwargs.get("cardsrc"):
+            piles = [(key, value) for key, value in self.game.get_card_piles() if key in kwargs["cardsrc"]]
+        else:
+            piles = self.game.get_card_piles()
+
+        candidates: list[tuple[str, str]] = []
+        index = 1
+        for name, card_pile in piles:
+            if name in exclude:
+                continue
+            candidates.append((str(index), name))
+            index += 1
+
+        if not candidates:
+            return []
+
+        if force and num == 1 and len(candidates) == 1:
+            return [candidates[0][1]]
+
+        selector_to_pile = {sel: pile_name for sel, pile_name in candidates}
+        selectors = list(selector_to_pile.keys())
+
+        lines: list[str] = []
+        recent_events = self._consume_recent_events()
+        if recent_events:
+            lines.append("Recent events:")
+            lines.extend(recent_events)
+            lines.append("")
+        prompt_text = kwargs.get("prompt", "")
+        if prompt_text:
+            lines.append(prompt_text)
+            lines.append("")
+
+        for sel, pile_name in candidates:
+            card = self.game.card_instances.get(pile_name)
+            parts = [f"{sel}) {verbs[0]} {pile_name}"]
+            if card and show_desc:
+                desc = card.description(self)
+                if desc:
+                    parts.append(f"- {desc}")
+            if card and kwargs.get("printcost"):
+                parts.append(f"({self._card_cost_str(card)})")
+            if card and kwargs.get("printtypes"):
+                raw_types = getattr(card, "_card_types", None) or []
+                types_str = "-".join(t.name.title() for t in raw_types) if raw_types else ""
+                if types_str:
+                    parts.append(f"[{types_str}]")
+            lines.append(" ".join(parts))
+
+        if any_num:
+            constraint = "Select any number of piles (0 or more)."
+        elif force:
+            constraint = f"Select exactly {num} pile{'s' if num != 1 else ''}."
+        else:
+            constraint = f"Select up to {num} pile{'s' if num != 1 else ''} (0 is allowed)."
+
+        lines.append("")
+        lines.append(constraint)
+        lines.append(f"Legal selectors: {', '.join(selectors)}")
+        lines.append('Return JSON: {"selectors":["1","3"]} with chosen pile numbers, or {"selectors":[]} for none.')
+
+        system_prompt = self._system_bootstrap()
+        user_prompt = "\n".join(lines)
+
+        llm_call_ref = self._start_matchup_llm_log(
+            selectors=selectors,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        pointer = llm_call_ref["pointer"] if llm_call_ref else f"LLM-{self.llm_calls + 1}"
+        self.game.spectator(f"[LLM] {self.name} card_pile_sel calling {self.llm_model} ({pointer})")
+
+        response = self._call_llm(system_prompt, user_prompt)
+        if response is None:
+            self._finish_matchup_llm_log(llm_call_ref, response=None, selector=None)
+            return []
+
+        chosen = self._extract_selectors(response, selectors)
+        self._finish_matchup_llm_log(
+            llm_call_ref,
+            response=response,
+            selector=",".join(chosen) if chosen else "<none>",
+        )
+
+        if chosen is None:
+            self._record_failure(
+                "multi_selector_parse",
+                f"response={self._truncate(response)} legal={self._truncate(','.join(selectors), 80)}",
+            )
+            return []
+
+        result: list[Any] = []
+        for sel in chosen:
+            pile_name = selector_to_pile.get(sel)
+            if pile_name is not None:
+                result.append(pile_name)
+
+        if not any_num and num > 0 and len(result) > num:
+            result = result[:num]
+
+        return result
+
+    ###########################################################################
+    def plr_choose_options(self, prompt: str, *choices: tuple[str, Any]) -> Any:
+        """Present a multiple-choice question to the LLM in one call."""
+        if len(choices) == 1:
+            return choices[0][1]
+
+        options: list[Option] = []
+        index = 0
+        for prnt, ans in choices:
+            options.append(Option(selector=f"{index}", verb=prnt, answer=ans))
+            index += 1
+
+        available = [opt for opt in options if opt["selector"] not in (None, "", "-")]
+        if len(available) == 1:
+            return available[0]["answer"]
+
+        selector = self._query_selector(available, options)
+        if selector is not None:
+            for opt in available:
+                if str(opt["selector"]) == selector:
+                    return opt["answer"]
+
+        # Fallback: return the first choice.
+        self._record_failure("choose_options_fallback", f"prompt={self._truncate(prompt)}")
+        return choices[0][1]
+
+    ###########################################################################
+    def _extract_selectors(self, text: str, legal_selectors: list[str]) -> Optional[list[str]]:
+        """Parse a multi-selector response like ``{"selectors":["1","3"]}``.
+
+        Returns a list of legal selectors, or ``None`` on parse failure.
+        An empty list ``[]`` is a valid response meaning "select nothing".
+        """
+        stripped = text.strip()
+        if not stripped:
+            return None
+
+        # Try JSON parse first.
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                raw = parsed.get("selectors")
+                if raw is None:
+                    # Also accept {"selector":"3"} as a single selection.
+                    single = parsed.get("selector")
+                    if single is not None:
+                        s = str(single).strip()
+                        return [s] if s in legal_selectors else None
+                    return None
+                if isinstance(raw, list):
+                    result: list[str] = []
+                    for item in raw:
+                        s = str(item).strip()
+                        if s in legal_selectors:
+                            result.append(s)
+                    return result
+                if isinstance(raw, str):
+                    # {"selectors":"1"} — single selector as string
+                    s = raw.strip()
+                    return [s] if s in legal_selectors else []
+            elif isinstance(parsed, list):
+                result = []
+                for item in parsed:
+                    s = str(item).strip()
+                    if s in legal_selectors:
+                        result.append(s)
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # Regex fallback: look for selectors:["1","3"] or similar patterns.
+        match = re.search(r"selectors\s*[:=]\s*\[([^\]]*)\]", stripped, flags=re.IGNORECASE)
+        if match:
+            inner = match.group(1)
+            result = []
+            for tok in re.findall(r"['\"]?(\w+)['\"]?", inner):
+                tok = tok.strip()
+                if tok in legal_selectors:
+                    result.append(tok)
+            return result
+
+        # Final fallback: if the response is a single selector in the legal set,
+        # treat it as a single-item selection.
+        single = self._extract_selector(stripped, legal_selectors)
+        if single is not None:
+            return [single]
+
+        return None
+
+    ###########################################################################
+    _TURN_MARKER_RE = re.compile(r"^Turn (\d+) - ")
+
+    def _consume_recent_events(self, max_lines: int = 80, *, turn_level: bool = False) -> list[str]:
+        """Return spectator log entries covering the last 2 full turns.
+
+        When *turn_level* is ``True`` (used by ``_build_llm_turn_prompt``),
+        the method scans backward through the spectator log to find the
+        turn marker two turns before the current turn and returns
+        everything from that point onward.  This gives the LLM a
+        consistent window of recent game history regardless of how many
+        sub-decisions occurred within the current turn.
+
+        When *turn_level* is ``False`` (used by sub-decisions like
+        ``_query_card_sel``), events are sliced from the **sub cursor**
+        which advances on every call.  Sub-decisions only need the narrow
+        context of what just happened (e.g. "SandraLLM plays Chapel.").
+
+        Only ``[LLM]`` internal markers are filtered out.  All other
+        entries (draws, treasure plays, phase transitions, etc.) are
+        preserved.
+        """
+        log = getattr(self.game, "spectator_log", None)
+        if not log:
+            return []
+        log_len = len(log)
+
+        if turn_level:
+            # Find the start index for "2 turns ago".
+            # We want events starting from 2 full turn cycles before the
+            # current turn.  A turn cycle = one turn for each player.
+            # Walk backward to find the right turn marker.
+            current_turn = getattr(self, "turn_number", 1)
+            # Show the full spectator log from 2 turns ago until now.
+            # E.g. on turn 3 we look back to turn 1 markers, which
+            # covers all players' turn 1, turn 2, and current turn 3.
+            target_turn = max(1, current_turn - 2)
+            start_idx = 0
+            # Walk forward to find the first turn marker at the target.
+            # This ensures we include *all* players' turns at that number
+            # (e.g. "Turn 1 - Sandra" and "Turn 1 - Pamela").
+            for i in range(log_len):
+                m = self._TURN_MARKER_RE.match(log[i])
+                if m and int(m.group(1)) >= target_turn:
+                    start_idx = i
+                    break
+
+            new_entries = log[start_idx:]
+            # Keep sub cursor up to date.
+            self._spectator_sub_cursor = max(self._spectator_sub_cursor, log_len)
+        else:
+            new_entries = log[self._spectator_sub_cursor:]
+            self._spectator_sub_cursor = log_len
+
+        filtered = self._filter_llm_markers(new_entries)
+        if len(filtered) > max_lines:
+            filtered = filtered[-max_lines:]
+        return filtered
+
+    ###########################################################################
+    @staticmethod
+    def _filter_llm_markers(entries: list[str]) -> list[str]:
+        """Remove internal [LLM] markers — everything else is kept."""
+        return [e for e in entries if not e.startswith("[LLM]")]
+
+    ###########################################################################
+    def _query_selector(
+        self, legal_options: list[Option], display_options: Optional[list[Option]] = None
+    ) -> Optional[str]:
+        selectors = [str(opt["selector"]) for opt in legal_options]
+        if not selectors:
+            return None
+        selectors_text = ",".join(selectors)
+
+        system_prompt = self._system_bootstrap()
+
+        shown_options = display_options if display_options is not None else legal_options
+        user_prompt = self._build_llm_turn_prompt(shown_options, selectors)
+
+        llm_call_ref = self._start_matchup_llm_log(
+            selectors=selectors,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+        pointer = llm_call_ref["pointer"] if llm_call_ref else f"LLM-{self.llm_calls + 1}"
+        self.game.spectator(f"[LLM] {self.name} calling {self.llm_model} ({pointer})")
+
+        response = self._call_llm(system_prompt, user_prompt)
+        selector: Optional[str] = None
+        if response is None:
+            self._finish_matchup_llm_log(llm_call_ref, response=None, selector=None)
+            return None
+        response_preview = self._truncate(response)
+        selector = self._extract_selector(response, selectors)
+        if selector is None:
+            self._record_failure(
+                "selector_parse",
+                f"response={response_preview} legal={self._truncate(selectors_text, 80)}",
+            )
+        else:
+            self.llm_last_error = ""
+            self._sync_legacy_ollama_compat()
+        self._finish_matchup_llm_log(llm_call_ref, response=response, selector=selector)
+        return selector
+
+    ###########################################################################
+    def _call_llm(self, system_prompt: str, user_prompt: str) -> Optional[str]:
+        self._reset_last_call_stats()
+
+        if not self.llm_model:
+            self._record_failure("missing_model")
+            return None
+
+        self.llm_calls += 1
+        provider = self.llm_provider.strip().lower()
+        if provider == "ollama":
+            response = self._call_ollama(system_prompt, user_prompt)
+        elif provider == "openrouter":
+            response = self._call_openrouter(system_prompt, user_prompt)
+        else:
+            self._record_failure("unsupported_provider", provider)
+            return None
+
+        self._sync_legacy_ollama_compat()
+        return response
+
+    ###########################################################################
+    def _call_ollama(self, system_prompt: str, user_prompt: str) -> Optional[str]:
+        payload = {
+            "model": self.llm_model,
+            "stream": False,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "options": {"temperature": self.llm_temperature},
+        }
+        request = urllib.request.Request(
+            f"{self.ollama_url}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        body = ""
+        start = time.monotonic()
+        try:
+            response_stream = urllib.request.urlopen(request)
+            with response_stream as response:
+                self.llm_last_http_status = str(response.status)
+                body = response.read().decode("utf-8")
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            parsed = json.loads(body)
+            self.llm_last_prompt_tokens = int(parsed.get("prompt_eval_count", 0) or 0)
+            self.llm_last_eval_tokens = int(parsed.get("eval_count", 0) or 0)
+            self.llm_total_prompt_tokens += self.llm_last_prompt_tokens
+            self.llm_total_eval_tokens += self.llm_last_eval_tokens
+            try:
+                message = parsed["message"]
+                content = message["content"]
+            except (KeyError, TypeError) as exc:
+                self._record_failure("response_parse", f"{exc}; body={self._truncate(body)}")
+                return None
+            if not isinstance(content, str):
+                self._record_failure("missing_content", f"body={self._truncate(body)}")
+                return None
+            thinking = message.get("thinking", "")
+            if thinking is None:
+                thinking = ""
+            elif not isinstance(thinking, str):
+                thinking = str(thinking)
+            self.llm_last_thinking_tokens_est = self._token_estimate(thinking)
+            self.llm_last_output_tokens_est = self._token_estimate(content)
+            self.llm_total_thinking_tokens_est += self.llm_last_thinking_tokens_est
+            self.llm_total_output_tokens_est += self.llm_last_output_tokens_est
+            self.llm_last_thinking_full = thinking
+            self.llm_last_output_full = content
+            self.llm_last_error = ""
+            return content.strip()
+        except urllib.error.HTTPError as exc:
+            resp = ""
+            try:
+                resp = exc.read().decode("utf-8", errors="replace")
+            except OSError:
+                pass
+            self.llm_last_http_status = str(exc.code)
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("http_error", f"status={exc.code} body={self._truncate(resp)}")
+            return None
+        except urllib.error.URLError as exc:
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("url_error", self._truncate(str(exc.reason)))
+            return None
+        except json.JSONDecodeError as exc:
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("json_decode", f"{exc.msg}; body={self._truncate(body)}")
+            return None
+        except OSError as exc:
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("os_error", self._truncate(str(exc)))
+            return None
+
+    ###########################################################################
+    def _call_openrouter(self, system_prompt: str, user_prompt: str) -> Optional[str]:
+        if not self.openrouter_api_key:
+            self._record_failure("missing_api_key", "OPENROUTER_API_KEY")
+            return None
+
+        payload = {
+            "model": self.llm_model,
+            "stream": False,
+            "temperature": self.llm_temperature,
+            "reasoning": {"enabled": True},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+
+        endpoint = self.openrouter_url
+        if not endpoint.endswith("/chat/completions"):
+            endpoint = f"{endpoint}/chat/completions"
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.openrouter_api_key}",
+        }
+        if self.openrouter_referer:
+            headers["HTTP-Referer"] = self.openrouter_referer
+        if self.openrouter_title:
+            headers["X-Title"] = self.openrouter_title
+
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+
+        body = ""
+        start = time.monotonic()
+        try:
+            response_stream = urllib.request.urlopen(request)
+            with response_stream as response:
+                self.llm_last_http_status = str(response.status)
+                body = response.read().decode("utf-8")
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            parsed = json.loads(body)
+
+            usage = parsed.get("usage", {})
+            reasoning_tokens = 0
+            if isinstance(usage, dict):
+                self.llm_last_prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+                self.llm_last_eval_tokens = int(usage.get("completion_tokens", 0) or 0)
+                reasoning_tokens = self._extract_reasoning_tokens(usage)
+                self.llm_total_prompt_tokens += self.llm_last_prompt_tokens
+                self.llm_total_eval_tokens += self.llm_last_eval_tokens
+
+            try:
+                choice = parsed["choices"][0]
+                message = choice["message"]
+            except (KeyError, IndexError, TypeError) as exc:
+                self._record_failure("response_parse", f"{exc}; body={self._truncate(body)}")
+                return None
+
+            thinking = self._extract_reasoning(message, choice)
+            content = message.get("content", "")
+            if isinstance(content, list):
+                parts: list[str] = []
+                for item in content:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            parts.append(text)
+                content = "".join(parts)
+
+            if not isinstance(content, str):
+                self._record_failure("missing_content", f"body={self._truncate(body)}")
+                return None
+
+            self.llm_last_thinking_tokens_est = reasoning_tokens if reasoning_tokens > 0 else self._token_estimate(thinking)
+            self.llm_last_output_tokens_est = self._token_estimate(content)
+            self.llm_total_thinking_tokens_est += self.llm_last_thinking_tokens_est
+            self.llm_total_output_tokens_est += self.llm_last_output_tokens_est
+            self.llm_last_thinking_full = thinking
+            self.llm_last_output_full = content
+            self.llm_last_error = ""
+            return content.strip()
+        except urllib.error.HTTPError as exc:
+            resp = ""
+            try:
+                resp = exc.read().decode("utf-8", errors="replace")
+            except OSError:
+                pass
+            self.llm_last_http_status = str(exc.code)
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("http_error", f"status={exc.code} body={self._truncate(resp)}")
+            return None
+        except urllib.error.URLError as exc:
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("url_error", self._truncate(str(exc.reason)))
+            return None
+        except json.JSONDecodeError as exc:
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("json_decode", f"{exc.msg}; body={self._truncate(body)}")
+            return None
+        except OSError as exc:
+            self.llm_last_latency_ms = int((time.monotonic() - start) * 1000)
+            self._record_failure("os_error", self._truncate(str(exc)))
+            return None
+
+    ###########################################################################
+    @staticmethod
+    def _extract_reasoning(message: dict[str, Any], choice: dict[str, Any]) -> str:
+        reasoning_parts: list[str] = []
+        for key in ("reasoning", "thinking", "reasoning_content"):
+            value = message.get(key)
+            if isinstance(value, str):
+                reasoning_parts.append(value)
+        for key in ("reasoning", "thinking", "reasoning_content"):
+            value = choice.get(key)
+            if isinstance(value, str):
+                reasoning_parts.append(value)
+
+        if not reasoning_parts:
+            return ""
+        return "\n\n".join(part for part in reasoning_parts if part)
+
+    ###########################################################################
+    @staticmethod
+    def _extract_reasoning_tokens(usage: dict[str, Any]) -> int:
+        direct = usage.get("reasoning_tokens")
+        if isinstance(direct, int):
+            return max(0, direct)
+
+        details = usage.get("completion_tokens_details")
+        if isinstance(details, dict):
+            value = details.get("reasoning_tokens")
+            if isinstance(value, int):
+                return max(0, value)
+        return 0
+
+    ###########################################################################
+    def _extract_selector(self, text: str, selectors: list[str]) -> Optional[str]:
+        stripped = text.strip()
+        if not stripped:
+            return None
+
+        if stripped in selectors:
+            return stripped
+
+        wrapped = stripped.strip("`\"' ")
+        if wrapped in selectors:
+            return wrapped
+
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                selector = parsed.get("selector")
+                if selector is not None:
+                    selector_str = str(selector).strip()
+                    if selector_str in selectors:
+                        return selector_str
+            elif isinstance(parsed, str):
+                parsed_str = parsed.strip()
+                if parsed_str in selectors:
+                    return parsed_str
+        except json.JSONDecodeError:
+            pass
+
+        matched = re.search(r"selector\s*[:=]\s*['\"]?([^'\"\s,}]+)", stripped, flags=re.IGNORECASE)
+        if matched:
+            selector_str = matched.group(1).strip()
+            if selector_str in selectors:
+                return selector_str
+
+        for selector in selectors:
+            if f'"{selector}"' in stripped or f"'{selector}'" in stripped or f"`{selector}`" in stripped:
+                return selector
+
+        return None
+
+    ###########################################################################
+    def _select_spend_all_treasures(self, legal_options: list[Option]) -> Optional[Option]:
+        if not self.llm_auto_spend_all_treasures or self.phase != Phase.BUY:
+            return None
+        for opt in legal_options:
+            if opt["verb"] == "Spend all treasures":
+                return opt
+        return None
+
+    ###########################################################################
+    def _build_llm_turn_prompt(self, options: list[Option], legal_selectors: list[str]) -> str:
+        lines = []
+
+        # Kingdom state — moved here from the system prompt so the execution
+        # LLM sees it per-turn while keeping the system prompt compact.
+        if cards_in_play := self._cards_in_play_bootstrap():
+            lines.append(cards_in_play)
+            lines.append("")
+
+        recent_events = self._consume_recent_events(turn_level=True)
+        if recent_events:
+            lines.append("Recent events:")
+            lines.extend(recent_events)
+            lines.append("")
+
+        lines.append(f"{'#' * 30} Turn {self.turn_number} {'#' * 30}")
+        stats = f"({self.get_score()} points, {self.count_cards()} cards)"
+        lines.append(f"{self.name}'s Turn {stats}")
+
+        lines.extend(self._score_lines())
+        lines.extend(self._self_card_state_lines())
+
+        for opponent in self._opponents():
+            lines.append("")
+            lines.extend(self._opponent_card_state_lines(opponent))
+        lines.append("")
+        trash = list(self.game.trash_pile)
+        lines.append(f"Trash ({len(trash)}): {self._cards_text(trash)}")
+        lines.append(f"************ {self.phase.name.title()} Phase ************")
+        lines.append("")
+        for opt in options:
+            lines.append(self.selector_line(opt))
+        lines.append(f"Legal selectors: {', '.join(legal_selectors)}")
+        lines.append("Choose one selector now.")
+        return "\n".join(lines)
+
+    ###########################################################################
+    def _score_lines(self) -> list[str]:
+        lines = [
+            self._current_turn_resources_line(),
+            "",
+        ]
+        lines.append("Scores:")
+        for player in [self, *self._opponents()]:
+            lines.append(f"- {player.name}: {player.get_score()} points")
+        return lines
+
+    ###########################################################################
+    def _current_turn_resources_line(self) -> str:
+        parts = [f"Actions={self.actions.get()}", f"Buys={self.buys.get()}", f"Coins={self.coins.get()}"]
+        optional_counts = [
+            ("Potions", self.potions.get()),
+            ("Villagers", self.villagers.get()),
+            ("Debt", self.debt.get()),
+            ("Coffers", self.coffers.get()),
+            ("Favors", self.favors.get()),
+        ]
+        for label, value in optional_counts:
+            if value:
+                parts.append(f"{label}={value}")
+        return "Current turn resources: " + " ".join(parts)
+
+    ###########################################################################
+    def _self_card_state_lines(self) -> list[str]:
+        lines = [f"{self.name} card state:"]
+        for pile_name, pile in self.piles.items():
+            cards = list(pile)
+            if pile_name == Piles.DECK:
+                cards = self._shuffled_cards_for_display(cards, f"{self.name}:deck")
+                label = "Deck (unordered)"
+            else:
+                label = pile_name.name.title()
+            lines.append(f"- {label} ({len(cards)}): {self._cards_text(cards)}")
+        return lines
+
+    ###########################################################################
+    def _opponent_card_state_lines(self, opponent: "Player") -> list[str]:
+        lines = [f"{opponent.name} card state:"]
+
+        for pile_name, pile in opponent.piles.items():
+            if pile_name in (Piles.HAND, Piles.DECK):
+                continue
+            cards = list(pile)
+            lines.append(f"- {pile_name.name.title()} ({len(cards)}): {self._cards_text(cards)}")
+
+        hidden_cards = list(opponent.piles[Piles.HAND]) + list(opponent.piles[Piles.DECK])
+        hidden_cards = self._shuffled_cards_for_display(hidden_cards, f"{opponent.name}:hand_deck")
+        lines.append(f"- Hand+Deck (unordered) ({len(hidden_cards)}): {self._cards_text(hidden_cards)}")
+        return lines
+
+    ###########################################################################
+    def _opponents(self) -> list["Player"]:
+        return [player for player in self.game.player_list() if player is not self]
+
+    ###########################################################################
+    @staticmethod
+    def _cards_text(cards: list[Any]) -> str:
+        if not cards:
+            return "<EMPTY>"
+        return ", ".join(str(card) for card in cards)
+
+    ###########################################################################
+    def _shuffled_cards_for_display(self, cards: list[Any], salt: str) -> list[Any]:
+        shuffled = list(cards)
+        if len(shuffled) <= 1:
+            return shuffled
+        names = ",".join(getattr(card, "name", str(card)) for card in shuffled)
+        seed = f"{salt}|turn={self.turn_number}|phase={self.phase.name}|cards={names}"
+        rng = random.Random(seed)
+        rng.shuffle(shuffled)
+        return shuffled
+
+    ###########################################################################
+    def _record_failure(self, reason: str, detail: str = "") -> None:
+        self.llm_failures += 1
+        self.llm_failure_reasons[reason] = self.llm_failure_reasons.get(reason, 0) + 1
+        if detail:
+            self.llm_last_error = f"{reason}: {detail}"
+        else:
+            self.llm_last_error = reason
+        self._sync_legacy_ollama_compat()
+
+    ###########################################################################
+    def _reset_last_call_stats(self) -> None:
+        self.llm_last_error = ""
+        self.llm_last_http_status = ""
+        self.llm_last_latency_ms = -1
+        self.llm_last_prompt_tokens = 0
+        self.llm_last_eval_tokens = 0
+        self.llm_last_thinking_tokens_est = 0
+        self.llm_last_output_tokens_est = 0
+        self.llm_last_thinking_full = ""
+        self.llm_last_output_full = ""
+        self._sync_legacy_ollama_compat()
+
+    ###########################################################################
+    def _sync_legacy_ollama_compat(self) -> None:
+        """Keep legacy Ollama attribute names populated for existing scripts."""
+        self.ollama_model = self.llm_model
+        self.ollama_temperature = self.llm_temperature
+        self.ollama_gameengine_prompt_path = self.llm_gameengine_prompt_path
+        self.ollama_gameengine_prompt = self.llm_gameengine_prompt
+        self.ollama_gameplay_prompt_path = self.llm_gameplay_prompt_path
+        self.ollama_gameplay_prompt = self.llm_gameplay_prompt
+        self.ollama_auto_spend_all_treasures = self.llm_auto_spend_all_treasures
+
+        self.ollama_calls = self.llm_calls
+        self.ollama_failures = self.llm_failures
+        self.ollama_last_error = self.llm_last_error
+        self.ollama_last_http_status = self.llm_last_http_status
+        self.ollama_last_latency_ms = self.llm_last_latency_ms
+        self.ollama_last_thinking_full = self.llm_last_thinking_full
+        self.ollama_last_output_full = self.llm_last_output_full
+        self.ollama_last_prompt_tokens = self.llm_last_prompt_tokens
+        self.ollama_last_eval_tokens = self.llm_last_eval_tokens
+        self.ollama_last_thinking_tokens_est = self.llm_last_thinking_tokens_est
+        self.ollama_last_output_tokens_est = self.llm_last_output_tokens_est
+        self.ollama_total_prompt_tokens = self.llm_total_prompt_tokens
+        self.ollama_total_eval_tokens = self.llm_total_eval_tokens
+        self.ollama_total_thinking_tokens_est = self.llm_total_thinking_tokens_est
+        self.ollama_total_output_tokens_est = self.llm_total_output_tokens_est
+        self.ollama_failure_reasons = self.llm_failure_reasons
+
+    ###########################################################################
+    def _card_cost_str(self, card: Any) -> str:
+        parts = []
+        cost = getattr(card, "cost", -1)
+        if cost >= 0:
+            parts.append(f"{cost} coin")
+        if getattr(card, "potcost", False):
+            parts.append("1 potion")
+        debt = getattr(card, "debtcost", 0)
+        if debt:
+            parts.append(f"{debt} debt")
+        return " + ".join(parts) if parts else "unknown"
+
+    ###########################################################################
+    def _cards_in_play_bootstrap(self) -> str:
+        lines = []
+        for pile_name, _ in self.game.get_card_piles():
+            pile = self.game.card_piles.get(pile_name)
+            card = self.game.card_instances.get(pile_name)
+            if card is None:
+                if pile is not None and not pile.is_empty():
+                    card = pile.get_top_card()
+            if card is None:
+                continue
+            description = " ".join(card.description(self).split())
+            if not description:
+                description = "<no description>"
+            cost_str = self._card_cost_str(card)
+            raw_types = getattr(card, "_card_types", None) or []
+            types_str = "-".join(t.name.title() for t in raw_types) if raw_types else "Unknown"
+            pile_count = len(pile) if pile is not None else "?"
+            lines.append(f"{pile_name} [{types_str}, cost {cost_str}, {pile_count} in supply]: {description}")
+        if not lines:
+            return ""
+        return "Playing Dominion with these cards and their effects when played:\n" + "\n".join(lines)
+
+    ###########################################################################
+    def _system_bootstrap(self) -> str:
+        """Build a compact system prompt for turn-by-turn execution.
+
+        The heavy gameengine/gameplay prompts and kingdom card list are NOT
+        included here — they are provided to the strategy LLM at game start.
+        During execution the system prompt is kept minimal to reduce token
+        usage; the kingdom card list is included in the user prompt instead.
+        """
+        if not self._llm_strategy_generated:
+            self._generate_strategy()
+
+        prompt_sections: list[str] = [
+            "You are a Dominion player. Pick exactly one legal selector per decision.\n"
+            "Return JSON only: {\"selector\":\"<value>\"}\n"
+            "No extra keys, no explanation, no markdown."
+        ]
+        if self.llm_strategy:
+            prompt_sections.append(f"Your pre-game strategy for this kingdom:\n{self.llm_strategy}")
+        return "\n\n".join(prompt_sections)
+
+    ###########################################################################
+    def _generate_strategy(self) -> None:
+        """Call the LLM once before the first turn to produce a high-level strategy.
+
+        The strategy is stored in ``self.llm_strategy`` and will be appended to
+        every subsequent system prompt so the model can stay aligned with its
+        own plan throughout the game.
+
+        When ``strategy_llm_provider`` and ``strategy_llm_model`` are set, those
+        are used for this call instead of the main (execution) LLM.
+        """
+        self._llm_strategy_generated = True  # prevent re-entry even on failure
+
+        cards_in_play = self._cards_in_play_bootstrap()
+        if not cards_in_play:
+            return
+
+        system_prompt_parts: list[str] = []
+        if self.llm_gameengine_prompt:
+            system_prompt_parts.append(self.llm_gameengine_prompt)
+        if self.llm_gameplay_prompt:
+            system_prompt_parts.append(self.llm_gameplay_prompt)
+        if not system_prompt_parts:
+            system_prompt_parts.append(
+                "You are a Dominion bot. Make legal moves and maximize end-game VP. "
+                "If card text conflicts with default rules, follow card text."
+            )
+        system_prompt_parts.append(cards_in_play)
+        system_prompt = "\n\n".join(system_prompt_parts)
+
+        user_prompt = (
+            "Before the game begins, analyze the kingdom and produce pseudocode strategy that you will follow during the game.\n"
+            "Be specific to this kingdom. No JSON — plain text only."
+        )
+
+        # Temporarily swap provider/model if a dedicated strategy LLM is configured.
+        use_strategy_llm = bool(self.strategy_llm_provider and self.strategy_llm_model)
+        if use_strategy_llm:
+            saved_provider, saved_model = self.llm_provider, self.llm_model
+            self.llm_provider = self.strategy_llm_provider
+            self.llm_model = self.strategy_llm_model
+
+        strategy = self._call_llm(system_prompt, user_prompt)
+
+        if use_strategy_llm:
+            self.llm_provider = saved_provider
+            self.llm_model = saved_model
+            self._sync_legacy_ollama_compat()
+
+        if strategy:
+            self.llm_strategy = strategy.strip()
+
+    ###########################################################################
+    @staticmethod
+    def _load_prompt(path: str) -> str:
+        try:
+            content = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+        return content
+
+    ###########################################################################
+    @staticmethod
+    def _truncate(text: str, size: int = 180) -> str:
+        s = str(text)
+        if size <= 0:
+            return s
+        if len(s) <= size:
+            return s
+        return s[: size - 3] + "..."
+
+    ###########################################################################
+    @staticmethod
+    def _token_estimate(text: str) -> int:
+        if not text:
+            return 0
+        return len(re.findall(r"\S+", text))
+
+    ###########################################################################
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"1", "true", "t", "yes", "y", "on"}:
+                return True
+            if lowered in {"0", "false", "f", "no", "n", "off", ""}:
+                return False
+        return bool(value)
+
+    ###########################################################################
+    def _start_matchup_llm_log(
+        self,
+        selectors: list[str],
+        system_prompt: str,
+        user_prompt: str,
+    ) -> Optional[dict[str, str]]:
+        logger = getattr(self.game, "matchup_logger", None)
+        if logger is None:
+            return None
+        try:
+            return logger.start_llm_call(
+                player_name=self.name,
+                model=self.llm_model,
+                legal_selectors=selectors,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+            )
+        except OSError:
+            return None
+
+    ###########################################################################
+    def _finish_matchup_llm_log(
+        self,
+        llm_call_ref: Optional[dict[str, str]],
+        response: Optional[str],
+        selector: Optional[str],
+    ) -> None:
+        logger = getattr(self.game, "matchup_logger", None)
+        if logger is None:
+            return
+        try:
+            logger.finish_llm_call(
+                llm_call_ref,
+                selected_selector=selector,
+                http_status=self.llm_last_http_status,
+                latency_ms=self.llm_last_latency_ms,
+                prompt_tokens=self.llm_last_prompt_tokens,
+                output_tokens=self.llm_last_eval_tokens,
+                thinking_tokens=self.llm_last_thinking_tokens_est,
+                output_tokens_est=self.llm_last_output_tokens_est,
+                thinking_text=self.llm_last_thinking_full,
+                output_text=self.llm_last_output_full,
+                response_text=response,
+                error_text=self.llm_last_error,
+            )
+        except OSError:
+            pass
+
+
+# EOF
