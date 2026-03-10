@@ -13,7 +13,7 @@ from dominion import Keys
 from dominion import Piles
 from dominion.Artifact import Artifact
 from dominion.Boon import BoonPile, Boon
-from dominion.BotPlayer import BotPlayer
+from dominion.bots.BotPlayer import BotPlayer
 from dominion.Card import CardExpansion, Card
 from dominion.CardPile import CardPile
 from dominion.Event import Event
@@ -24,7 +24,7 @@ from dominion.Names import playerNames
 from dominion.Player import Player
 from dominion.Project import Project
 from dominion.Prophecy import Prophecy
-from dominion.RandobotPlayer import RandobotPlayer
+from dominion.bots.RandobotPlayer import RandobotPlayer
 from dominion.TextPlayer import TextPlayer
 from dominion.Trait import Trait
 from dominion.Way import Way

@@ -1,5 +1,6 @@
 """Player is a non-interactive bot of dubious intelligence - big money strategy"""
 
+import enum
 import inspect
 import sys
 from types import ModuleType
@@ -13,6 +14,18 @@ from dominion.Player import Player
 if TYPE_CHECKING:
     from dominion.Game import Game
     from dominion.Card import Card
+from dominion import Action
+
+
+class DuchyStrategy(enum.Enum):
+    GREEDY = "greedy"            # Buy duchy whenever you have 5+ coins (default)
+    FIVE_PROVINCE = "5province"  # Buy duchy only if <=5 provinces remain
+    NO_DUCHY = "no_duchy"        # Never buy duchy
+
+
+class ProvinceStrategy(enum.Enum):
+    GREEDY = "greedy"    # Buy province whenever you have 8+ coins (default)
+    TURN_12 = "turn12"   # Buy province only on turn 12 or later
 
 
 ###############################################################################
@@ -24,6 +37,8 @@ class BotPlayer(Player):
     def __init__(self, game: "Game", name: str = "", quiet: bool = False, **kwargs: Any):
         self.colour = "red on black"
         self.console = Console()
+        self.duchy_strategy: DuchyStrategy = kwargs.pop("duchy_strategy", DuchyStrategy.FIVE_PROVINCE)
+        self.province_strategy: ProvinceStrategy = kwargs.pop("province_strategy", ProvinceStrategy.GREEDY)
         Player.__init__(self, game, name, quiet, **kwargs)
 
     ###########################################################################
@@ -46,7 +61,7 @@ class BotPlayer(Player):
         try:
             opts = {}
             for opt in options:
-                if opt["action"] == "buy":
+                if opt["action"] == Action.BUY:
                     if opt["card"].name == "Colony":
                         opts["colony"] = opt
                     if opt["card"].name == "Province":
@@ -59,11 +74,11 @@ class BotPlayer(Player):
                         opts["duchy"] = opt
                     if opt["card"].name == "Silver":
                         opts["silver"] = opt
-                if opt["action"] == "quit":
+                if opt["action"] == Action.QUIT:
                     opts["quit"] = opt
-                if opt["action"] == "spendall":
+                if opt["action"] == Action.SPENDALL:
                     opts["spendall"] = opt
-                if opt["action"] == "payback":
+                if opt["action"] == Action.PAYBACK:
                     opts["payback"] = opt
 
             return opts
@@ -71,6 +86,23 @@ class BotPlayer(Player):
             print(f"Options={options}")
             print(f"Exception: {str(exc)}")
             raise
+
+    ###########################################################################
+    def _should_buy_province(self) -> bool:
+        """Check province_strategy to decide whether to buy Province."""
+        if self.province_strategy == ProvinceStrategy.TURN_12:
+            return self.turn_number >= 12
+        return True  # GREEDY
+
+    ###########################################################################
+    def _should_buy_duchy(self) -> bool:
+        """Check duchy_strategy to decide whether to buy Duchy."""
+        if self.duchy_strategy == DuchyStrategy.NO_DUCHY:
+            return False
+        if self.duchy_strategy == DuchyStrategy.FIVE_PROVINCE:
+            province_pile = self.game.card_piles.get("Province")
+            return province_pile is not None and len(province_pile) <= 5
+        return True  # GREEDY
 
     ###########################################################################
     def user_input(self, options, prompt: str):  # pylint: disable=too-many-return-statements
@@ -87,11 +119,11 @@ class BotPlayer(Player):
             return opts["colony"]
         if coin >= 9 and "platinum" in opts:
             return opts["platinum"]
-        if coin >= 8:
+        if coin >= 8 and "province" in opts and self._should_buy_province():
             return opts["province"]
         if coin >= 6 and "gold" in opts:
             return opts["gold"]
-        if coin >= 5 and "duchy" in opts:
+        if coin >= 5 and "duchy" in opts and self._should_buy_duchy():
             return opts["duchy"]
         if coin >= 3 and "silver" in opts:
             return opts["silver"]
