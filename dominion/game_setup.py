@@ -13,7 +13,7 @@ from dominion import Keys
 from dominion import Piles
 from dominion.Artifact import Artifact
 from dominion.Boon import BoonPile, Boon
-from dominion.bots.BotPlayer import BotPlayer
+from dominion.bots.BigMoney import BigMoney
 from dominion.Card import CardExpansion, Card
 from dominion.CardPile import CardPile
 from dominion.Event import Event
@@ -53,6 +53,7 @@ PATHS: dict[Keys, str] = {}
 INIT_NUMBERS: dict[Keys, int] = {}
 INIT_CARDS: dict[Keys, list[Any]] = {}
 INIT_OPTIONS: dict[Flag, Any] = {Flag.NUM_STACKS: 10, Flag.RANDOBOT: 0, Flag.BOT: False}
+PLAYER_CLASSES: list[type[Player]] = []
 FLAGS: dict[Flag, bool] = {}
 
 
@@ -720,8 +721,10 @@ def place_init_card(game: "Game", card: str, available: list[str]) -> Optional[i
 ###########################################################################
 def instantiate_player_class(game: "Game", name: str, use_shelters: bool, player_num: int, the_uuid: str) -> Player:
     """Create the player instances"""
-    if INIT_OPTIONS[Flag.BOT]:
-        plr_class: type[Player] = BotPlayer
+    if PLAYER_CLASSES and player_num < len(PLAYER_CLASSES):
+        plr_class: type[Player] = PLAYER_CLASSES[player_num]
+    elif INIT_OPTIONS[Flag.BOT]:
+        plr_class = BigMoney
         name = f"{name}Bot"
         INIT_OPTIONS[Flag.BOT] = False
     elif INIT_OPTIONS[Flag.RANDOBOT]:
@@ -809,6 +812,8 @@ def parse_args(game: "Game", **args: Any) -> None:
     INIT_OPTIONS[Flag.BOT] = args.get("bot", False)
     INIT_OPTIONS[Flag.RANDOBOT] = args.get("randobot", 0)
     FLAGS[Flag.ALLOW_SHELTERS] = args.get("shelters", True)
+    PLAYER_CLASSES.clear()
+    PLAYER_CLASSES.extend(args.get("player_classes", []))
 
 
 ###########################################################################

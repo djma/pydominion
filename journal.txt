@@ -1,0 +1,11 @@
+base ❯ uv run python -m dominion.bots.matchup --control BotPlayer --experiment NaiveBotPlayer \
+    --games 100 --kingdom Chapel Village Smithy Market Militia Moat Festival Laboratory Workshop Witch
+
+Matchup: NaiveBotPlayer (experiment) vs BotPlayer (control)
+Games: 100
+Kingdom: Chapel, Village, Smithy, Market, Militia, Moat, Festival, Laboratory, Workshop, Witch
+
+Games: 100  (W 34 / L 61 / D 5)
+Win %:            36.5%
+Draw %:           5.0%
+Win % as 1st plr: 22.0%

@@ -31,7 +31,7 @@ class ProvinceStrategy(enum.Enum):
 ###############################################################################
 ###############################################################################
 ###############################################################################
-class BotPlayer(Player):
+class BigMoney(Player):
     """The Bot"""
 
     def __init__(self, game: "Game", name: str = "", quiet: bool = False, **kwargs: Any):
@@ -138,7 +138,7 @@ class BotPlayer(Player):
             mod = inspect.getmodule(rec[0])
             assert mod is not None
             mod_name = mod.__name__.replace("dominion.", "")
-            if mod_name not in ("BotPlayer", "Player", "__main__"):
+            if mod_name not in ("BigMoney", "bots.BigMoney", "Player", "__main__"):
                 mod = inspect.getmodule(rec[0])
                 return mod
         return None
