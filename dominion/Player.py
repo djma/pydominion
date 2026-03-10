@@ -1728,7 +1728,7 @@ class Player:
             verbs=("Get", "Unget"),
             **kwargs,
         ):
-            card_name = cards[0].name
+            card_name = cards[0] if isinstance(cards[0], str) else cards[0].name
             try:
                 new_card = recipient.gain_card(card_name, destination)
                 recipient.output(f"Got a {new_card}")
