@@ -1854,6 +1854,8 @@ class Player:
             else:
                 kwargs["prompt"] = f"Discard {num} cards"
         discard = self.card_sel(num=num, anynum=any_number, verbs=("Discard", "Undiscard"), **kwargs)
+        if kwargs.get("force", False) and len(discard) != num and not any_number:
+            raise ValueError(f"Expected {num} discards but got {len(discard)}")
         for card in discard:
             self.output(f"Discarding {card}")
             self.discard_card(card)
