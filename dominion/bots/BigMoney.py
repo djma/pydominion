@@ -161,7 +161,16 @@ class BigMoney(Player):
     def plr_choose_options(self, prompt, *choices) -> Any:
         mod = self.get_calling_card()
         if hasattr(mod, "botresponse"):
-            return mod.botresponse(self, "choices", args=choices)  # type: ignore
+            card_choices = []
+            for choice in choices:
+                if isinstance(choice, tuple) and len(choice) > 1:
+                    value = choice[1]
+                else:
+                    value = choice
+                if isinstance(value, str):
+                    value = self.game.card_instances.get(value, value)
+                card_choices.append(value)
+            return mod.botresponse(self, "choices", kwargs={"cardsrc": card_choices})  # type: ignore
         assert False, f"BigMoneyBot can't choose options from {mod.__name__} {choices=}"  # type: ignore
 
     ###########################################################################

@@ -91,8 +91,18 @@ def _card_types(card: Card.Card) -> set[Card.CardType]:
 ###############################################################################
 def botresponse(player, kind, args=None, kwargs=None):  # pragma: no cover pylint: disable=unused-argument
     """If we need to pick up cards - pick up the best"""
+    choices = []
+    if kwargs and kwargs.get("cardsrc") is not None:
+        choices = list(kwargs["cardsrc"])
+    elif args:
+        choices = [c[1] for c in args]
+
     picked = []
-    for card in kwargs["cardsrc"]:
+    for card in choices:
+        if isinstance(card, str):
+            card = player.game.card_instances.get(card, card)
+        if not hasattr(card, "name"):
+            continue
         if card.name == "Province":
             picked.append((6, "Province"))
         elif card.name == "Gold":
@@ -105,8 +115,10 @@ def botresponse(player, kind, args=None, kwargs=None):  # pragma: no cover pylin
             picked.append((2, "Estate"))
         elif card.name == "Copper":
             picked.append((1, "Copper"))
+    if not picked:
+        return None
     picked.sort()
-    return [picked[-1][1]]
+    return picked[-1][1]
 
 
 ###############################################################################
