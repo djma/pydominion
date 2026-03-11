@@ -21,7 +21,7 @@ To set up a new experiment, work with the user to:
 6. **Verify the matchup runs**: Run the matchup command once to confirm everything works:
    ```
    uv run python -m dominion.bots.matchup --control BigMoney --experiment ExperimentBot \
-       --kingdom Chapel Village Smithy Market Militia Moat Festival Laboratory Workshop Witch
+       --kingdom Barbarian Laboratory Scrap "Chariot Race" "Poacher" "Crystal Ball" "Patrol" "Hamlet" "Smugglers" "Siren"
    ```
 7. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
 8. **Confirm and go**: Confirm setup looks good.
@@ -36,7 +36,7 @@ Run command (substitute `<CURRENT_CONTROL>` with the active control bot name):
 
 ```
 uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment ExperimentBot \
-    --kingdom Chapel Village Smithy Market Militia Moat Festival Laboratory Workshop Witch > run.log 2>&1
+    --kingdom Barbarian Laboratory Scrap "Chariot Race" "Poacher" "Crystal Ball" "Patrol" "Hamlet" "Smugglers" "Siren"
 ```
 
 **What you CAN do:**
@@ -116,7 +116,7 @@ LOOP FOREVER:
 2. Think about strategy: read the card files if needed, analyze what the current control does poorly, think about Dominion strategy (engine building, trashing, attacks, greening timing)
 3. Tune `ExperimentBot.py` with an experimental idea by directly hacking the code
 4. git commit
-5. Run the experiment: `uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment ExperimentBot --kingdom Chapel Village Smithy Market Militia Moat Festival Laboratory Workshop Witch > run.log 2>&1`
+5. Run the experiment: `uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment ExperimentBot --kingdom Barbarian Laboratory Scrap "Chariot Race" "Poacher" "Crystal Ball" "Patrol" "Hamlet" "Smugglers" "Siren" > run.log 2>&1`
 6. Read out the results: `grep "^Win %:\|^Games:" run.log`
 7. If the grep output is empty, the run crashed. Run `tail -n 50 run.log` to read the Python stack trace and attempt a fix. If you can't get things to work after more than a few attempts, give up on this idea.
 8. Record the results in the tsv (NOTE: do not commit the results.tsv file, leave it untracked by git)
