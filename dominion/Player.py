@@ -1040,10 +1040,12 @@ class Player:
     def _play_enough_actions(self, card: Card, cost_action: bool) -> bool:
         """Do we have enough actions to play this card"""
         if card.isAction() and cost_action and self.phase not in (Phase.NIGHT, Phase.BUY):
-            self.actions -= 1
-        if self.actions.get() < 0:  # pragma: no cover
-            self.actions.set(0)
-            return False
+            if self.actions.get() > 0:
+                self.actions -= 1
+            elif self.villagers.get() > 0:
+                self.villagers -= 1
+            else:
+                return False
         return True
 
     ###########################################################################
