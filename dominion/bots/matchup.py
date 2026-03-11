@@ -27,8 +27,11 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
+from dominion.Card import CardExpansion
 from dominion.Player import Player
 from dominion.bots import get_all_bots
+
+EXPANSION_NAMES: dict[str, CardExpansion] = {e.name.lower(): e for e in CardExpansion if e != CardExpansion.TEST}
 
 
 @dataclass
@@ -106,6 +109,7 @@ class Matchup:
         num_games: int = 100,
         kingdom: list[str] | None = None,
         kingdom_seed: int | None = None,
+        expansions: list[CardExpansion] | None = None,
         game_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self.control_bot = control_bot
@@ -113,6 +117,7 @@ class Matchup:
         self.num_games = num_games + (num_games % 2)  # round up to even
         self.kingdom = kingdom
         self.kingdom_seed = kingdom_seed
+        self.expansions = expansions
         self.game_kwargs = dict(game_kwargs) if game_kwargs else {}
 
     def _build_replay_command(
@@ -136,6 +141,8 @@ class Matchup:
             parts.append(f"--kingdom-seed {self.kingdom_seed}")
         else:
             parts.append("--random")
+        if self.expansions:
+            parts.append(f"--expansions {' '.join(e.name.lower() for e in self.expansions)}")
         for key, value in self.game_kwargs.items():
             if isinstance(value, bool) and value:
                 parts.append(f"--{key}")
@@ -156,12 +163,15 @@ class Matchup:
             random.seed(self.kingdom_seed)
             from dominion.Game import Game
 
-            g = Game(
-                initcards=[],
-                numplayers=2,
-                quiet=True,
-                player_classes=[BigMoney, BigMoney],
-            )
+            kwargs: dict[str, Any] = {
+                "initcards": [],
+                "numplayers": 2,
+                "quiet": True,
+                "player_classes": [BigMoney, BigMoney],
+            }
+            if self.expansions:
+                kwargs["allowed_expansions"] = self.expansions
+            g = Game(**kwargs)
             g.start_game()
             cards = [
                 name
@@ -188,6 +198,8 @@ class Matchup:
             "player_classes": classes,
             **self.game_kwargs,
         }
+        if self.expansions and self.kingdom is None:
+            kwargs["allowed_expansions"] = self.expansions
         if self.kingdom is not None:
             kwargs["initcards"] = self.kingdom
             kwargs["num_stacks"] = len(self.kingdom)
@@ -266,6 +278,16 @@ def main() -> None:
         default=False,
         help="Force experiment bot to play first (for single-game replay)",
     )
+    parser.add_argument(
+        "--expansions",
+        nargs="+",
+        default=None,
+        metavar="EXPANSION",
+        help=(
+            f"Restrict random kingdom to cards from these expansions "
+            f"(available: {', '.join(sorted(EXPANSION_NAMES))})"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -274,6 +296,17 @@ def main() -> None:
 
     control_cls = _resolve_bot(args.control)
     experiment_cls = _resolve_bot(args.experiment)
+
+    expansions: list[CardExpansion] | None = None
+    if args.expansions:
+        expansions = []
+        for name in args.expansions:
+            key = name.lower()
+            if key not in EXPANSION_NAMES:
+                raise SystemExit(
+                    f"Unknown expansion: {name!r}. Available: {', '.join(sorted(EXPANSION_NAMES))}"
+                )
+            expansions.append(EXPANSION_NAMES[key])
 
     game_kwargs: dict[str, Any] = {}
     if args.prosperity:
@@ -285,6 +318,7 @@ def main() -> None:
         num_games=args.games,
         kingdom=args.kingdom,
         kingdom_seed=args.kingdom_seed,
+        expansions=expansions,
         game_kwargs=game_kwargs if game_kwargs else None,
     )
 
@@ -296,6 +330,8 @@ def main() -> None:
         print(f"Kingdom seed: {matchup.kingdom_seed}")
     else:
         print("Kingdom: random each game")
+    if matchup.expansions:
+        print(f"Expansions: {', '.join(e.name.lower() for e in matchup.expansions)}")
     print()
 
     summary = matchup.run()

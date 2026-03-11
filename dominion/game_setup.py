@@ -457,6 +457,22 @@ def get_available_card_classes() -> dict[str, dict[str, type[Card]]]:
 
 
 ###########################################################################
+def _cards_outside_expansions(expansion_set: set[CardExpansion]) -> list[str]:
+    """Return names of kingdom cards whose expansion is not in *expansion_set*.
+
+    Safe to call only after PATHS has been populated by parse_args.
+    """
+    bad: list[str] = []
+    for name, cls in get_available_card_classes().get("Card", {}).items():
+        try:
+            if cls().base not in expansion_set:
+                bad.append(name)
+        except Exception:  # noqa: BLE001
+            pass
+    return bad
+
+
+###########################################################################
 def load_non_kingdom_pile(game: "Game", cardtype: str, pileClass) -> dict[str, CardPile]:
     """Load non kingdom cards into a pile
     Returns a dictionary; key is the name, value is the instance
@@ -814,6 +830,10 @@ def parse_args(game: "Game", **args: Any) -> None:
     FLAGS[Flag.ALLOW_SHELTERS] = args.get("shelters", True)
     PLAYER_CLASSES.clear()
     PLAYER_CLASSES.extend(args.get("player_classes", []))
+    _allowed_expansions = args.get("allowed_expansions", None)
+    if _allowed_expansions:
+        _extra_badcards = _cards_outside_expansions(set(_allowed_expansions))
+        INIT_CARDS[Keys.BAD_CARDS] = list(set(INIT_CARDS[Keys.BAD_CARDS]) | set(_extra_badcards))
 
 
 ###########################################################################
