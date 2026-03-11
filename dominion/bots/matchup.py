@@ -28,7 +28,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Any
 
-from dominion.Card import CardExpansion
+from dominion import Phase
+from dominion.Card import Card, CardExpansion
 from dominion.Player import Player
 from dominion.bots import get_all_bots
 
@@ -40,6 +41,7 @@ class TurnRecord:
     """Per-turn statistics for a single player."""
 
     coins_available: int  # coins spent on buys + leftover unused coins
+    actions_played: int  # action cards successfully played this turn
     vp: int  # VP score at end of this turn
 
 
@@ -125,10 +127,10 @@ class MatchupSummary:
             return None
         return 2.0 * half_width
 
-    def adaptive_stop_reason(self, ci_width: float = 0.05) -> str | None:
+    def adaptive_stop_reason(self, ci_width: float = 0.15) -> str | None:
         """Return stop reason when adaptive CI-width criterion is met."""
         ci_width_value = self.ci95_width
-        if ci_width_value is not None and ci_width_value < ci_width:
+        if self.total > 10 and ci_width_value is not None and ci_width_value < ci_width:
             return f"95% CI width {ci_width_value * 100:.2f}% < {ci_width * 100:.2f}%"
 
         return None
@@ -151,10 +153,10 @@ class MatchupSummary:
 
     @property
     def avg_turns_per_game(self) -> float:
-        """Average total game turns (both players combined) across all games."""
+        """Average total game turns (both players combined / 2) across all games."""
         if not self.results:
             return 0.0
-        return sum(r.turns for r in self.results) / len(self.results)
+        return sum(r.turns for r in self.results) / (2 * len(self.results))
 
     @staticmethod
     def _timeseries(records_lists: list[list[TurnRecord]], attr: str) -> list[float]:
@@ -182,6 +184,14 @@ class MatchupSummary:
     def control_vp_timeseries(self) -> list[float]:
         return self._timeseries([r.control_turn_records for r in self.results], "vp")
 
+    @property
+    def experiment_actions_timeseries(self) -> list[float]:
+        return self._timeseries([r.experiment_turn_records for r in self.results], "actions_played")
+
+    @property
+    def control_actions_timeseries(self) -> list[float]:
+        return self._timeseries([r.control_turn_records for r in self.results], "actions_played")
+
     @staticmethod
     def _fmt_timeseries(values: list[float]) -> str:
         return ", ".join(f"{v:.1f}" for v in values)
@@ -194,6 +204,8 @@ class MatchupSummary:
         print(f"Avg turns/game:   {self.avg_turns_per_game:.1f}")
         print(f"Coins/turn (exp): {self._fmt_timeseries(self.experiment_coins_timeseries)}")
         print(f"Coins/turn (ctl): {self._fmt_timeseries(self.control_coins_timeseries)}")
+        print(f"Actions/turn (exp): {self._fmt_timeseries(self.experiment_actions_timeseries)}")
+        print(f"Actions/turn (ctl): {self._fmt_timeseries(self.control_actions_timeseries)}")
         print(f"VP/turn (exp):    {self._fmt_timeseries(self.experiment_vp_timeseries)}")
         print(f"VP/turn (ctl):    {self._fmt_timeseries(self.control_vp_timeseries)}")
 
@@ -202,9 +214,10 @@ MAX_TURNS = 400
 
 
 class TrackingMixin:
-    """Mixin that records per-turn coin and VP stats on any Player subclass.
+    """Mixin that records per-turn coin, actions, and VP stats on any Player subclass.
 
     Tracks coins_available = coins spent on buys + coins left unused at end of turn.
+    Tracks actions_played = number of action cards successfully played this turn.
     Tracks VP score at end of each turn.
     """
 
@@ -212,9 +225,11 @@ class TrackingMixin:
         super().__init__(*args, **kwargs)  # type: ignore[misc]
         self._turn_records: list[TurnRecord] = []
         self._coins_spent_this_turn: int = 0
+        self._actions_played_this_turn: int = 0
 
     def start_turn(self) -> None:
         self._coins_spent_this_turn = 0
+        self._actions_played_this_turn = 0
         super().start_turn()  # type: ignore[misc]
 
     def buy_card(self, card_name: str) -> None:
@@ -222,11 +237,30 @@ class TrackingMixin:
         super().buy_card(card_name)  # type: ignore[misc]
         self._coins_spent_this_turn += max(0, before - self.coins.get())  # type: ignore[attr-defined]
 
+    def _play_enough_actions(self, card: Card, cost_action: bool) -> bool:
+        """Track successful action card plays in addition to action checks."""
+        if not card.isAction():
+            return super()._play_enough_actions(card, cost_action)  # type: ignore[misc]
+
+        if self.phase == Phase.NIGHT or self.phase == Phase.BUY:
+            return super()._play_enough_actions(card, cost_action)  # type: ignore[misc]
+
+        result = super()._play_enough_actions(card, cost_action)  # type: ignore[misc]
+        if result:
+            self._actions_played_this_turn += 1
+        return result
+
     def end_turn(self) -> None:
         coins_leftover = self.coins.get()  # type: ignore[attr-defined]
         total_coins = self._coins_spent_this_turn + coins_leftover
         vp = self.get_score()  # type: ignore[attr-defined]
-        self._turn_records.append(TurnRecord(coins_available=total_coins, vp=vp))
+        self._turn_records.append(
+            TurnRecord(
+                coins_available=total_coins,
+                vp=vp,
+                actions_played=self._actions_played_this_turn,
+            )
+        )
         super().end_turn()  # type: ignore[misc]
 
 
@@ -252,6 +286,7 @@ class Matchup:
         self.game_kwargs = dict(game_kwargs) if game_kwargs else {}
         self._show_progress = sys.stdout.isatty()
         self._last_progress_len = 0
+        self._last_result_len = 0
 
     def _display_progress(self, game_number: int, turn_number: int) -> None:
         """Update one in-place terminal progress line."""
@@ -267,6 +302,31 @@ class Matchup:
         sys.stdout.write(f"\r{message}{' ' * padding}")
         sys.stdout.flush()
         self._last_progress_len = len(message)
+
+    def _display_game_result(self, game_number: int, summary: MatchupSummary) -> None:
+        """Show game result on a persistent line above the in-progress turn counter."""
+        if not self._show_progress:
+            return
+        ci = summary.ci95
+        ci_str = f"[{ci[0] * 100:.1f}%, {ci[1] * 100:.1f}%]" if ci else "n/a"
+        w, lo, d = summary.wins, summary.losses, summary.draws
+        if self.num_games is None:
+            message = f"Game {game_number}: W{w}/L{lo}/D{d} | {summary.win_pct:.1f}% | 95% CI: {ci_str}"
+        else:
+            message = f"Game {game_number}/{self.num_games}: W{w}/L{lo}/D{d} | {summary.win_pct:.1f}% | 95% CI: {ci_str}"
+        if self._last_result_len == 0:
+            # First result: overwrite the current progress line, then open a fresh line below for progress.
+            padding = max(0, self._last_progress_len - len(message))
+            sys.stdout.write(f"\r{message}{' ' * padding}\n")
+        else:
+            # Subsequent results: cursor is on progress line (line 2); go up to result line (line 1),
+            # update it, come back down, and clear the stale progress text.
+            result_padding = max(0, self._last_result_len - len(message))
+            progress_clear = " " * self._last_progress_len
+            sys.stdout.write(f"\033[A\r{message}{' ' * result_padding}\n\r{progress_clear}\r")
+        self._last_result_len = len(message)
+        self._last_progress_len = 0
+        sys.stdout.flush()
 
     def _clear_progress(self) -> None:
         """Clear the progress line from the terminal."""
@@ -419,6 +479,7 @@ class Matchup:
                     seed = random.randint(0, 2**31 - 1)
                     result = self._run_single_game(seed, experiment_first, game_number=i + 1)
                     summary.results.append(result)
+                    self._display_game_result(i + 1, summary)
                 return summary
             finally:
                 self._clear_progress()
@@ -430,6 +491,7 @@ class Matchup:
                 seed = random.randint(0, 2**31 - 1)
                 result = self._run_single_game(seed, experiment_first, game_number=i + 1)
                 summary.results.append(result)
+                self._display_game_result(i + 1, summary)
 
                 stop_reason = summary.adaptive_stop_reason()
                 if stop_reason is not None:
