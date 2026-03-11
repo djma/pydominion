@@ -36,6 +36,14 @@ EXPANSION_NAMES: dict[str, CardExpansion] = {e.name.lower(): e for e in CardExpa
 
 
 @dataclass
+class TurnRecord:
+    """Per-turn statistics for a single player."""
+
+    coins_available: int  # coins spent on buys + leftover unused coins
+    vp: int  # VP score at end of this turn
+
+
+@dataclass
 class GameResult:
     """Statistics for a single game."""
 
@@ -43,6 +51,9 @@ class GameResult:
     outcome: int  # 1 = experiment won, -1 = control won, 0 = draw
     experiment_first: bool
     replay_command: str
+    turns: int = 0
+    experiment_turn_records: list[TurnRecord] = field(default_factory=list)
+    control_turn_records: list[TurnRecord] = field(default_factory=list)
 
 
 @dataclass
@@ -51,15 +62,6 @@ class MatchupSummary:
 
     results: list[GameResult] = field(default_factory=list)
     stop_reason: str | None = None
-
-    @staticmethod
-    def _score_from_outcome(outcome: int) -> float:
-        """Convert game outcome to score where draw = 0.5."""
-        if outcome == 1:
-            return 1.0
-        if outcome == 0:
-            return 0.5
-        return 0.0
 
     @property
     def total(self) -> int:
@@ -123,27 +125,11 @@ class MatchupSummary:
             return None
         return 2.0 * half_width
 
-    @property
-    def p_value_vs_fair(self) -> float | None:
-        """Two-sided p-value for H0: score_mean == 0.5."""
-        se = self.score_std_error
-        if se is None:
-            return None
-        if se == 0.0:
-            return 1.0 if self.score_mean == 0.5 else 0.0
-        z = abs(self.score_mean - 0.5) / se
-        # two-sided p-value under standard normal approximation
-        return math.erfc(z / math.sqrt(2.0))
-
-    def adaptive_stop_reason(self, p_threshold: float = 0.05, ci_width: float = 0.02) -> str | None:
-        """Return stop reason when adaptive criteria are met."""
-        p_value = self.p_value_vs_fair
-        if p_value is not None and p_value < p_threshold:
-            return f"Rejected 50% win rate at p={p_value:.4g} < {p_threshold:.2f}"
-
+    def adaptive_stop_reason(self, ci_width: float = 0.05) -> str | None:
+        """Return stop reason when adaptive CI-width criterion is met."""
         ci_width_value = self.ci95_width
-        if ci_width_value is not None and ci_width_value <= ci_width:
-            return f"95% CI width {ci_width_value * 100:.2f}% <= {ci_width * 100:.2f}%"
+        if ci_width_value is not None and ci_width_value < ci_width:
+            return f"95% CI width {ci_width_value * 100:.2f}% < {ci_width * 100:.2f}%"
 
         return None
 
@@ -163,14 +149,85 @@ class MatchupSummary:
         draws = sum(1 for r in first_games if r.outcome == 0)
         return (wins + 0.5 * draws) / len(first_games) * 100
 
+    @property
+    def avg_turns_per_game(self) -> float:
+        """Average total game turns (both players combined) across all games."""
+        if not self.results:
+            return 0.0
+        return sum(r.turns for r in self.results) / len(self.results)
+
+    @staticmethod
+    def _timeseries(records_lists: list[list[TurnRecord]], attr: str) -> list[float]:
+        """Per-turn average of `attr` across games (index = turn number - 1)."""
+        max_turns = max((len(r) for r in records_lists), default=0)
+        result = []
+        for t in range(max_turns):
+            values = [getattr(r[t], attr) for r in records_lists if t < len(r)]
+            result.append(sum(values) / len(values))
+        return result
+
+    @property
+    def experiment_coins_timeseries(self) -> list[float]:
+        return self._timeseries([r.experiment_turn_records for r in self.results], "coins_available")
+
+    @property
+    def control_coins_timeseries(self) -> list[float]:
+        return self._timeseries([r.control_turn_records for r in self.results], "coins_available")
+
+    @property
+    def experiment_vp_timeseries(self) -> list[float]:
+        return self._timeseries([r.experiment_turn_records for r in self.results], "vp")
+
+    @property
+    def control_vp_timeseries(self) -> list[float]:
+        return self._timeseries([r.control_turn_records for r in self.results], "vp")
+
+    @staticmethod
+    def _fmt_timeseries(values: list[float]) -> str:
+        return ", ".join(f"{v:.1f}" for v in values)
+
     def print(self) -> None:
         print(f"Games: {self.total}  (W {self.wins} / L {self.losses} / D {self.draws})")
         print(f"Win %:            {self.win_pct:.1f}%")
         print(f"Draw %:           {self.draw_pct:.1f}%")
         print(f"Win % as 1st plr: {self.first_player_win_pct:.1f}%")
+        print(f"Avg turns/game:   {self.avg_turns_per_game:.1f}")
+        print(f"Coins/turn (exp): {self._fmt_timeseries(self.experiment_coins_timeseries)}")
+        print(f"Coins/turn (ctl): {self._fmt_timeseries(self.control_coins_timeseries)}")
+        print(f"VP/turn (exp):    {self._fmt_timeseries(self.experiment_vp_timeseries)}")
+        print(f"VP/turn (ctl):    {self._fmt_timeseries(self.control_vp_timeseries)}")
 
 
 MAX_TURNS = 400
+
+
+class TrackingMixin:
+    """Mixin that records per-turn coin and VP stats on any Player subclass.
+
+    Tracks coins_available = coins spent on buys + coins left unused at end of turn.
+    Tracks VP score at end of each turn.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[misc]
+        self._turn_records: list[TurnRecord] = []
+        self._coins_spent_this_turn: int = 0
+
+    def start_turn(self) -> None:
+        self._coins_spent_this_turn = 0
+        super().start_turn()  # type: ignore[misc]
+
+    def buy_card(self, card_name: str) -> None:
+        before = self.coins.get()  # type: ignore[attr-defined]
+        super().buy_card(card_name)  # type: ignore[misc]
+        self._coins_spent_this_turn += max(0, before - self.coins.get())  # type: ignore[attr-defined]
+
+    def end_turn(self) -> None:
+        coins_leftover = self.coins.get()  # type: ignore[attr-defined]
+        total_coins = self._coins_spent_this_turn + coins_leftover
+        vp = self.get_score()  # type: ignore[attr-defined]
+        self._turn_records.append(TurnRecord(coins_available=total_coins, vp=vp))
+        super().end_turn()  # type: ignore[misc]
 
 
 class Matchup:
@@ -287,10 +344,16 @@ class Matchup:
         """Play one game and return the result."""
         from dominion.Game import Game
 
+        class _TrackingExperiment(TrackingMixin, self.experiment_bot):  # type: ignore[valid-type,misc]
+            pass
+
+        class _TrackingControl(TrackingMixin, self.control_bot):  # type: ignore[valid-type,misc]
+            pass
+
         if experiment_first:
-            classes = [self.experiment_bot, self.control_bot]
+            classes = [_TrackingExperiment, _TrackingControl]
         else:
-            classes = [self.control_bot, self.experiment_bot]
+            classes = [_TrackingControl, _TrackingExperiment]
 
         kwargs: dict[str, Any] = {
             "numplayers": 2,
@@ -335,6 +398,9 @@ class Matchup:
             outcome=outcome,
             experiment_first=experiment_first,
             replay_command=replay,
+            turns=turns,
+            experiment_turn_records=list(getattr(exp_player, "_turn_records", [])),
+            control_turn_records=list(getattr(ctrl_player, "_turn_records", [])),
         )
 
     def run(self) -> MatchupSummary:
@@ -393,7 +459,7 @@ def main() -> None:
         default=None,
         help=(
             "Number of games (rounded up to even). "
-            "If omitted, run adaptively until 50% is rejected (p<0.05) or 95% CI width <= 2%."
+            "If omitted, run adaptively until 95% CI width < 5%."
         ),
     )
     parser.add_argument("--kingdom", nargs="+", default=None, help="Specific kingdom cards")
@@ -473,8 +539,6 @@ def main() -> None:
     if matchup.num_games is None:
         if summary.stop_reason:
             print(f"Stop reason:      {summary.stop_reason}")
-        if summary.p_value_vs_fair is not None:
-            print(f"P-value vs 50%:   {summary.p_value_vs_fair:.4g}")
         if summary.ci95 is not None:
             lower, upper = summary.ci95
             print(f"95% CI:           [{lower * 100:.2f}%, {upper * 100:.2f}%]")
