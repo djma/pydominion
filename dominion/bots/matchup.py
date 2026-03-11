@@ -22,6 +22,7 @@ Usage (API)::
 from __future__ import annotations
 
 import argparse
+import math
 import random
 import sys
 from dataclasses import dataclass, field
@@ -49,6 +50,16 @@ class MatchupSummary:
     """Aggregate statistics across all games in a matchup."""
 
     results: list[GameResult] = field(default_factory=list)
+    stop_reason: str | None = None
+
+    @staticmethod
+    def _score_from_outcome(outcome: int) -> float:
+        """Convert game outcome to score where draw = 0.5."""
+        if outcome == 1:
+            return 1.0
+        if outcome == 0:
+            return 0.5
+        return 0.0
 
     @property
     def total(self) -> int:
@@ -69,9 +80,72 @@ class MatchupSummary:
     @property
     def win_pct(self) -> float:
         """Win % where a draw counts as half a win."""
+        return self.score_mean * 100
+
+    @property
+    def score_mean(self) -> float:
+        """Average score in [0, 1], where draw counts as half."""
         if not self.results:
             return 0.0
-        return (self.wins + 0.5 * self.draws) / self.total * 100
+        return (self.wins + 0.5 * self.draws) / self.total
+
+    @property
+    def score_std_error(self) -> float | None:
+        """Binomial-style standard error for score_mean (None until at least 2 games)."""
+        n = self.total
+        if n < 2:
+            return None
+        p = self.score_mean
+        return math.sqrt(p * (1.0 - p) / n)
+
+    @property
+    def ci95_half_width(self) -> float | None:
+        """95% CI half-width for score_mean."""
+        se = self.score_std_error
+        if se is None:
+            return None
+        return 1.96 * se
+
+    @property
+    def ci95(self) -> tuple[float, float] | None:
+        """95% CI (lower, upper) for score_mean in [0, 1]."""
+        half_width = self.ci95_half_width
+        if half_width is None:
+            return None
+        mean = self.score_mean
+        return max(0.0, mean - half_width), min(1.0, mean + half_width)
+
+    @property
+    def ci95_width(self) -> float | None:
+        """95% CI full width for score_mean."""
+        half_width = self.ci95_half_width
+        if half_width is None:
+            return None
+        return 2.0 * half_width
+
+    @property
+    def p_value_vs_fair(self) -> float | None:
+        """Two-sided p-value for H0: score_mean == 0.5."""
+        se = self.score_std_error
+        if se is None:
+            return None
+        if se == 0.0:
+            return 1.0 if self.score_mean == 0.5 else 0.0
+        z = abs(self.score_mean - 0.5) / se
+        # two-sided p-value under standard normal approximation
+        return math.erfc(z / math.sqrt(2.0))
+
+    def adaptive_stop_reason(self, p_threshold: float = 0.05, ci_width: float = 0.02) -> str | None:
+        """Return stop reason when adaptive criteria are met."""
+        p_value = self.p_value_vs_fair
+        if p_value is not None and p_value < p_threshold:
+            return f"Rejected 50% win rate at p={p_value:.4g} < {p_threshold:.2f}"
+
+        ci_width_value = self.ci95_width
+        if ci_width_value is not None and ci_width_value <= ci_width:
+            return f"95% CI width {ci_width_value * 100:.2f}% <= {ci_width * 100:.2f}%"
+
+        return None
 
     @property
     def draw_pct(self) -> float:
@@ -106,7 +180,7 @@ class Matchup:
         self,
         control_bot: type[Player],
         experiment_bot: type[Player],
-        num_games: int = 100,
+        num_games: int | None = 100,
         kingdom: list[str] | None = None,
         kingdom_seed: int | None = None,
         expansions: list[CardExpansion] | None = None,
@@ -114,7 +188,7 @@ class Matchup:
     ) -> None:
         self.control_bot = control_bot
         self.experiment_bot = experiment_bot
-        self.num_games = num_games + (num_games % 2)  # round up to even
+        self.num_games = None if num_games is None else num_games + (num_games % 2)  # round up to even
         self.kingdom = kingdom
         self.kingdom_seed = kingdom_seed
         self.expansions = expansions
@@ -242,16 +316,30 @@ class Matchup:
         if kingdom is not None:
             self.kingdom = kingdom
 
-        half = self.num_games // 2
         summary = MatchupSummary()
 
-        for i in range(self.num_games):
-            experiment_first = i < half
+        if self.num_games is not None:
+            half = self.num_games // 2
+            for i in range(self.num_games):
+                experiment_first = i < half
+                seed = random.randint(0, 2**31 - 1)
+                result = self._run_single_game(seed, experiment_first)
+                summary.results.append(result)
+            return summary
+
+        i = 0
+        while True:
+            experiment_first = (i % 2) == 0
             seed = random.randint(0, 2**31 - 1)
             result = self._run_single_game(seed, experiment_first)
             summary.results.append(result)
 
-        return summary
+            stop_reason = summary.adaptive_stop_reason()
+            if stop_reason is not None:
+                summary.stop_reason = stop_reason
+                return summary
+
+            i += 1
 
 
 def _resolve_bot(name: str) -> type[Player]:
@@ -266,7 +354,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run bot-vs-bot Dominion matchup")
     parser.add_argument("--control", required=True, help="Control bot class name")
     parser.add_argument("--experiment", required=True, help="Experiment bot class name")
-    parser.add_argument("--games", type=int, default=100, help="Number of games (rounded up to even)")
+    parser.add_argument(
+        "--games",
+        type=int,
+        default=None,
+        help=(
+            "Number of games (rounded up to even). "
+            "If omitted, run adaptively until 50% is rejected (p<0.05) or 95% CI width <= 2%."
+        ),
+    )
     parser.add_argument("--kingdom", nargs="+", default=None, help="Specific kingdom cards")
     parser.add_argument("--kingdom-seed", type=int, default=None, help="Seed for random kingdom generation")
     parser.add_argument("--random", action="store_true", default=False, help="Fully random kingdom each game")
@@ -293,6 +389,8 @@ def main() -> None:
 
     if args.seed is not None:
         random.seed(args.seed)
+    if args.games is not None and args.games <= 0:
+        raise SystemExit("--games must be positive")
 
     control_cls = _resolve_bot(args.control)
     experiment_cls = _resolve_bot(args.experiment)
@@ -323,7 +421,10 @@ def main() -> None:
     )
 
     print(f"Matchup: {args.experiment} (experiment) vs {args.control} (control)")
-    print(f"Games: {matchup.num_games}")
+    if matchup.num_games is None:
+        print("Games: adaptive stopping")
+    else:
+        print(f"Games: {matchup.num_games}")
     if matchup.kingdom:
         print(f"Kingdom: {', '.join(matchup.kingdom)}")
     elif matchup.kingdom_seed is not None:
@@ -336,6 +437,14 @@ def main() -> None:
 
     summary = matchup.run()
     summary.print()
+    if matchup.num_games is None:
+        if summary.stop_reason:
+            print(f"Stop reason:      {summary.stop_reason}")
+        if summary.p_value_vs_fair is not None:
+            print(f"P-value vs 50%:   {summary.p_value_vs_fair:.4g}")
+        if summary.ci95 is not None:
+            lower, upper = summary.ci95
+            print(f"95% CI:           [{lower * 100:.2f}%, {upper * 100:.2f}%]")
 
     sys.exit(0)
 
