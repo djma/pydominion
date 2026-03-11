@@ -193,6 +193,32 @@ class Matchup:
         self.kingdom_seed = kingdom_seed
         self.expansions = expansions
         self.game_kwargs = dict(game_kwargs) if game_kwargs else {}
+        self._show_progress = sys.stdout.isatty()
+        self._last_progress_len = 0
+
+    def _display_progress(self, game_number: int, turn_number: int) -> None:
+        """Update one in-place terminal progress line."""
+        if not self._show_progress:
+            return
+        if self.num_games is None:
+            message = f"Running game {game_number} (adaptive) | turn {turn_number}"
+        else:
+            message = f"Running game {game_number}/{self.num_games} | turn {turn_number}"
+
+        # Pad with spaces so remnants from longer prior messages are cleared.
+        padding = max(0, self._last_progress_len - len(message))
+        sys.stdout.write(f"\r{message}{' ' * padding}")
+        sys.stdout.flush()
+        self._last_progress_len = len(message)
+
+    def _clear_progress(self) -> None:
+        """Clear the progress line from the terminal."""
+        if not self._show_progress:
+            return
+        if self._last_progress_len > 0:
+            sys.stdout.write(f"\r{' ' * self._last_progress_len}\r")
+            sys.stdout.flush()
+            self._last_progress_len = 0
 
     def _build_replay_command(
         self,
@@ -257,7 +283,7 @@ class Matchup:
             return cards
         return None  # fully random each game
 
-    def _run_single_game(self, seed: int, experiment_first: bool) -> GameResult:
+    def _run_single_game(self, seed: int, experiment_first: bool, game_number: int) -> GameResult:
         """Play one game and return the result."""
         from dominion.Game import Game
 
@@ -285,6 +311,7 @@ class Matchup:
         turns = 0
         while not game.game_over and turns < MAX_TURNS:
             turns += 1
+            self._display_progress(game_number, turns)
             game.turn()
 
         scores = game.whoWon()
@@ -320,26 +347,32 @@ class Matchup:
 
         if self.num_games is not None:
             half = self.num_games // 2
-            for i in range(self.num_games):
-                experiment_first = i < half
-                seed = random.randint(0, 2**31 - 1)
-                result = self._run_single_game(seed, experiment_first)
-                summary.results.append(result)
-            return summary
+            try:
+                for i in range(self.num_games):
+                    experiment_first = i < half
+                    seed = random.randint(0, 2**31 - 1)
+                    result = self._run_single_game(seed, experiment_first, game_number=i + 1)
+                    summary.results.append(result)
+                return summary
+            finally:
+                self._clear_progress()
 
         i = 0
-        while True:
-            experiment_first = (i % 2) == 0
-            seed = random.randint(0, 2**31 - 1)
-            result = self._run_single_game(seed, experiment_first)
-            summary.results.append(result)
+        try:
+            while True:
+                experiment_first = (i % 2) == 0
+                seed = random.randint(0, 2**31 - 1)
+                result = self._run_single_game(seed, experiment_first, game_number=i + 1)
+                summary.results.append(result)
 
-            stop_reason = summary.adaptive_stop_reason()
-            if stop_reason is not None:
-                summary.stop_reason = stop_reason
-                return summary
+                stop_reason = summary.adaptive_stop_reason()
+                if stop_reason is not None:
+                    summary.stop_reason = stop_reason
+                    return summary
 
-            i += 1
+                i += 1
+        finally:
+            self._clear_progress()
 
 
 def _resolve_bot(name: str) -> type[Player]:
