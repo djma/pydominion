@@ -388,6 +388,7 @@ class Matchup:
             }
             if self.expansions:
                 kwargs["allowed_expansions"] = self.expansions
+            kwargs.update(self.game_kwargs)
             g = Game(**kwargs)
             g.start_game()
             cards = [
@@ -545,6 +546,14 @@ def main() -> None:
             f"(available: {', '.join(sorted(EXPANSION_NAMES))})"
         ),
     )
+    parser.add_argument(
+        "--project",
+        action="append",
+        dest="projects",
+        default=[],
+        help="Include project",
+    )
+    parser.add_argument("--num_projects", type=int, default=0, help="Number of projects to use")
 
     args = parser.parse_args()
 
@@ -570,6 +579,10 @@ def main() -> None:
     game_kwargs: dict[str, Any] = {}
     if args.prosperity:
         game_kwargs["prosperity"] = True
+    if args.projects:
+        game_kwargs["projects"] = args.projects
+    if args.num_projects:
+        game_kwargs["num_projects"] = args.num_projects
 
     matchup = Matchup(
         control_bot=control_cls,
@@ -594,6 +607,10 @@ def main() -> None:
         print("Kingdom: random each game")
     if matchup.expansions:
         print(f"Expansions: {', '.join(e.name.lower() for e in matchup.expansions)}")
+    if matchup.game_kwargs.get("projects"):
+        print(f"Projects: {', '.join(matchup.game_kwargs['projects'])}")
+    if matchup.game_kwargs.get("num_projects"):
+        print(f"Num projects: {matchup.game_kwargs['num_projects']}")
     print()
 
     summary = matchup.run()

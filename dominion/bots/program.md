@@ -10,18 +10,17 @@ To set up a new experiment, work with the user to:
 2. **Create the branch**: `git checkout -b autoresearch/<tag>` from current HEAD.
 3. **Read the in-scope files**: Read these files for full context:
    - `dominion/bots/BigMoney.py` — the control bot (opponent). Do not modify.
-   - `dominion/bots/NaiveBotPlayer.py` — a reference heuristic bot. Do not modify.
    - `dominion/bots/matchup.py` — the evaluation harness. Do not modify.
    - `dominion/bots/__init__.py` — bot auto-discovery. Do not modify.
    - `dominion/Player.py` — base Player class. Read for context (don't modify).
    - `dominion/Card.py` — Card class. Read for context (don't modify).
    - `dominion/__init__.py` — enums (Action, Piles, Phase). Read for context.
 4. **Read the kingdom cards**: Read the card source files for every card in the kingdom to understand their effects. The cards are in `dominion/cards/` as `Card_<Name>.py` (e.g. `Card_Chapel.py`).
-5. **Create ExperimentBot.py**: Create `dominion/bots/ExperimentBot.py` as a copy of `NaiveBotPlayer.py`, with the class renamed to `ExperimentBot`. This is the file you will iterate on.
+5. **Create ExperimentBot.py**: Create a new `dominion/bots/ExperimentBot.py` which inherits Player.py. This is the file you will iterate on.
 6. **Verify the matchup runs**: Run the matchup command once to confirm everything works:
    ```
    uv run python -m dominion.bots.matchup --control BigMoney --experiment ExperimentBot \
-       --kingdom Barbarian Laboratory Scrap "Chariot Race" "Poacher" "Crystal Ball" "Patrol" "Hamlet" "Smugglers" "Siren"
+       --kingdom Patron Scavenger "Wandering Minstrel" Sculptor "Hunting Grounds" Ducat Lackeys Vagrant "Market Square" Feodum --project Guildhall
    ```
 7. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
 8. **Confirm and go**: Confirm setup looks good.
@@ -36,7 +35,7 @@ Run command (substitute `<CURRENT_CONTROL>` with the active control bot name):
 
 ```
 uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment ExperimentBot \
-    --kingdom Barbarian Laboratory Scrap "Chariot Race" "Poacher" "Crystal Ball" "Patrol" "Hamlet" "Smugglers" "Siren"
+    --kingdom Patron Scavenger "Wandering Minstrel" Sculptor "Hunting Grounds" Ducat Lackeys Vagrant "Market Square" Feodum --project Guildhall
 ```
 
 **What you CAN do:**
@@ -50,8 +49,6 @@ uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment 
 - Modify the evaluation harness. The matchup framework is the ground truth metric.
 
 **The goal is simple: maximize win % against the current control bot.** The initial control is BigMoney, a pure treasure-buying strategy that ignores kingdom cards — it just buys the most expensive treasure/victory card it can afford. As ExperimentBot improves and gets promoted, the control becomes a copy of the previous best ExperimentBot, creating a self-play ladder of increasing difficulty.
-
-**The first run**: Your very first run should always be to establish the baseline with the initial `ExperimentBot` (copied from NaiveBotPlayer). This tells you how well simple heuristics already do against BigMoney.
 
 ## Output format
 
@@ -96,7 +93,6 @@ Example:
 
 ```
 commit	win_pct	games	status	control	description
-a1b2c3d	52.3	38	keep	BigMoney	baseline (NaiveBotPlayer copy)
 b2c3d4e	68.5	44	keep	BigMoney	add Chapel trashing of Coppers and Estates
 c3d4e5f	48.1	40	discard	BigMoney	overly aggressive trashing
 d4e5f6g	0.0	0	crash	BigMoney	syntax error in card_sel
@@ -116,7 +112,7 @@ LOOP FOREVER:
 2. Think about strategy: read the card files if needed, analyze what the current control does poorly, think about Dominion strategy (engine building, trashing, attacks, greening timing)
 3. Tune `ExperimentBot.py` with an experimental idea by directly hacking the code
 4. git commit
-5. Run the experiment: `uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment ExperimentBot --kingdom Barbarian Laboratory Scrap "Chariot Race" "Poacher" "Crystal Ball" "Patrol" "Hamlet" "Smugglers" "Siren" > run.log 2>&1`
+5. Run the experiment: `uv run python -m dominion.bots.matchup --control <CURRENT_CONTROL> --experiment ExperimentBot --kingdom Patron Scavenger "Wandering Minstrel" Sculptor "Hunting Grounds" Ducat Lackeys Vagrant "Market Square" Feodum --project Guildhall > run.log 2>&1`
 6. Read out the results: `grep "^Win %:\|^Games:" run.log`
 7. If the grep output is empty, the run crashed. Run `tail -n 50 run.log` to read the Python stack trace and attempt a fix. If you can't get things to work after more than a few attempts, give up on this idea.
 8. Record the results in the tsv (NOTE: do not commit the results.tsv file, leave it untracked by git)
