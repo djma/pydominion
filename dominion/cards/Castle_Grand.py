@@ -61,7 +61,8 @@ class TestGrandCastle(unittest.TestCase):
             if card.name == "Sprawling Castle":  # One before Grand
                 break
         self.plr.gain_card("Castles")
-        self.assertEqual(self.plr.get_score_details()["Grand Castle"], 2)
+        # 5 VP printed on Grand Castle + 2 VP tokens from Duchy & Province in hand
+        self.assertEqual(self.plr.get_score_details()["Grand Castle"], 7)
 
 
 ###############################################################################

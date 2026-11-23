@@ -15,6 +15,8 @@ class Card_Knight(Card.Card):
         Card.Card.__init__(self)
         self.name = "Knights"
         self.base = Card.CardExpansion.DARKAGES
+        self.cardtype = [Card.CardType.ACTION, Card.CardType.ATTACK, Card.CardType.KNIGHT]
+        self.cost = 5
 
     @classmethod
     def cardpile_setup(cls, game: Game.Game):
@@ -31,10 +33,12 @@ def botresponse(player, kind, args=None, kwargs=None):  # pragma: no coverage, p
 ###############################################################################
 class KnightCardPile(CardPile.CardPile):
     def __init__(self, game: Game.Game) -> None:
-        self.mapping = game_setup.get_card_classes("KnightCard", game_setup.PATHS[Keys.CARDS], "Card_")
+        self.mapping = game_setup.get_card_classes("KnightCard", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in self.mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards: int = 0, card_class=None) -> None:
         self.cards = [_() for _ in self.mapping.values()]

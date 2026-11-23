@@ -27,9 +27,7 @@ class Card_Counterfeit(Card.Card):
             player.output("No suitable cards")
             return
         if card := player.plr_choose_options("What to do?", *choices):
-            for _ in range(2):
-                player.play_card(card, cost_action=False, discard=False)
-            player.trash_card(card)
+            player.play_card_multiple(card, times=2, source_card=self, trash_after=True)
 
 
 ###############################################################################

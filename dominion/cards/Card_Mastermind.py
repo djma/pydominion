@@ -29,11 +29,7 @@ class Card_Mastermind(Card.Card):
             player.output("No action cards to repeat")
             return {}
         if card := player.plr_choose_options("Play which action card three times?", *choices):
-            for i in range(1, 4):
-                player.output(f"Number {i} play of {card}")
-                player.play_card(card, discard=False, cost_action=False)
-            if card.location == Piles.HAND:
-                player.move_card(card, Piles.PLAYED)
+            player.play_card_multiple(card, times=3, source_card=self)
         return {}
 
 

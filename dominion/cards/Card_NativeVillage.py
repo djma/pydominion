@@ -21,11 +21,9 @@ class Card_NativeVillage(Card.Card):
         self.cost = 2
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        if NATIVE_VILLAGE not in player.specials:
-            player.specials[NATIVE_VILLAGE] = PlayArea.PlayArea([])
-        player.output(
-            f'Native Village contains: {", ".join(_.name for _ in player.specials[NATIVE_VILLAGE])}'
-        )
+        area = player.get_set_aside_area(NATIVE_VILLAGE)
+        player.specials[NATIVE_VILLAGE] = area
+        player.output(f'Native Village contains: {", ".join(_.name for _ in area)}')
         choice = player.plr_choose_options(
             "Choose One",
             (
@@ -39,9 +37,9 @@ class Card_NativeVillage(Card.Card):
                 card = player.next_card()
             except NoCardException:
                 return
-            player.specials[NATIVE_VILLAGE].add(card)
+            area.add(card)
+            card.location = Piles.SPECIAL
             player.output(f"Adding {card} to the Native Village")
-            player.secret_count += 1
         else:
             self.pull_back(player)
 
@@ -49,11 +47,11 @@ class Card_NativeVillage(Card.Card):
         self.pull_back(player)
 
     def pull_back(self, player: Player.Player) -> None:
-        for card in player.specials[NATIVE_VILLAGE]:
+        area = player.get_set_aside_area(NATIVE_VILLAGE)
+        for card in list(area):
             player.output(f"Returning {card} from Native Map")
+            area.remove(card)
             player.add_card(card, Piles.HAND)
-            player.specials[NATIVE_VILLAGE].remove(card)
-            player.secret_count -= 1
 
 
 ###############################################################################

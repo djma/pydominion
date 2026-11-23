@@ -42,7 +42,7 @@ class TestIsCard(unittest.TestCase):
         dyna = g.get_card_from_pile("Dyna Type")
         plr.add_card(copper, Piles.HAND)
         self.assertFalse(copper.isNight())
-        plr.add_card(dyna, Piles.HAND)
+        plr.add_card(dyna, Piles.PLAYED)
         self.assertTrue(copper.isNight())
 
     def test_isTreasure(self) -> None:

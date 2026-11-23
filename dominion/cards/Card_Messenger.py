@@ -37,7 +37,7 @@ class Card_Messenger(Card.Card):
                 player.piles[Piles.DECK].remove(crd)
 
     def hook_gain_this_card(self, game: "Game.Game", player: "Player.Player") -> dict[OptionKeys, Any]:
-        if player.stats["gained"]:
+        if len(player.stats["gained"]) > 1:
             return {}
         card = player.plr_gain_card(4, prompt="Pick a card for everyone to gain")
         if not card:

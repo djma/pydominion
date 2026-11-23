@@ -13,7 +13,7 @@ class Card_AbandonedMine(Card.Card):
         self.cardtype = [Card.CardType.ACTION, Card.CardType.RUIN]
         self.base = Card.CardExpansion.DARKAGES
         self.name = "Abandoned Mine"
-        self.purchasable = False
+        self.purchasable = True
         self.cost = 0
         self.desc = "+1 coin"
         self.coin = 1

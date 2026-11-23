@@ -28,17 +28,16 @@ class Card_Blockade(Card.Card):
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         """Gain a card costing up to $4, setting it aside."""
-        if self.uuid not in player.specials:
-            player.specials[self.uuid] = PlayArea.PlayArea(name="Blockade")
-        player.plr_gain_card(4, destination=player.specials[self.uuid])
-        player.secret_count += 1
+        area = player.get_set_aside_area(self.uuid)
+        player.specials[self.uuid] = area
+        player.plr_gain_card(4, destination=area)
 
     def duration(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, str]:
         """At the start of your next turn, put it into your hand"""
-        if player.specials[self.uuid]:
-            player.move_card(player.specials[self.uuid].next_card(), Piles.HAND)
-            del player.specials[self.uuid]
-            player.secret_count -= 1
+        if self.uuid in player.set_aside and player.set_aside[self.uuid]:
+            player.move_card(player.set_aside[self.uuid].next_card(), Piles.HAND)
+            del player.set_aside[self.uuid]
+            player.specials.pop(self.uuid, None)
         return {}
 
     def hook_all_players_gain_card(
@@ -49,9 +48,9 @@ class Card_Blockade(Card.Card):
         card: Card.Card,
     ) -> dict[OptionKeys, Any]:
         """While it's set aside, when another player gains a copy of it on their turn, they gain a Curse."""
-        if self.uuid not in owner.specials or not owner.specials[self.uuid] or player == owner:
+        if self.uuid not in owner.set_aside or not owner.set_aside[self.uuid] or player == owner:
             return {}
-        blockade_card = owner.specials[self.uuid].top_card()
+        blockade_card = owner.set_aside[self.uuid].top_card()
         if card.name != blockade_card.name:
             return {}
         try:
@@ -77,12 +76,13 @@ class TestBlockade(unittest.TestCase):
         self.plr.add_card(self.card, Piles.HAND)
         self.plr.test_input = ["Get Silver -"]
         self.plr.play_card(self.card)
-        self.assertIn("Blockade", self.plr.piles[Piles.DURATION])
+        self.assertIn("Blockade", self.plr.piles[Piles.PLAYED])
         self.assertNotIn("Silver", self.plr.piles[Piles.DISCARD])
         self.assertFalse(self.plr.specials[self.card.uuid].is_empty())
         self.vic.gain_card("Silver")
         self.assertIn("Curse", self.vic.piles[Piles.DISCARD])
         self.plr.end_turn()
+        self.assertIn("Blockade", self.plr.piles[Piles.DURATION])
         self.plr.start_turn()
         self.assertIn("Silver", self.plr.piles[Piles.HAND])
         self.assertNotIn(self.card.uuid, self.plr.specials)

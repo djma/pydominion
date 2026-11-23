@@ -50,9 +50,10 @@ class TestDungeon(unittest.TestCase):
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 2)  # 2 picked up from dungeon -2 discard
         self.assertNotIn("duchy", self.plr.piles[Piles.HAND])
-        self.assertEqual(self.plr.piles[Piles.DURATION].size(), 1)
+        self.assertEqual(self.plr.piles[Piles.PLAYED].size(), 1)
         self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 2)
         self.plr.end_turn()
+        self.assertEqual(self.plr.piles[Piles.DURATION].size(), 1)
         self.plr.test_input = ["1", "2", "finish"]
         self.plr.start_turn()
         self.assertEqual(self.plr.piles[Piles.DURATION].size(), 0)

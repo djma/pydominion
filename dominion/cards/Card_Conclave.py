@@ -19,11 +19,13 @@ class Card_Conclave(Card.Card):
         self.coin = 2
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        ac = [_ for _ in player.piles[Piles.HAND] if _.isAction()]
+        ac = [c for c in player.piles[Piles.HAND] if c.isAction()]
+        ac.extend(c for c in player.piles[Piles.DECK] if c.isAction() and c.isShadow())
         if not ac:
             player.output("No actions to play")
             return
-        sac = [_ for _ in ac if _.name not in player.piles[Piles.PLAYED]]
+        in_play_names = {c.name for c in player.in_play_cards()}
+        sac = [c for c in ac if c.name not in in_play_names]
         if not sac:
             player.output("No suitable actions to play")
             return
@@ -56,6 +58,26 @@ class Test_Conclave(unittest.TestCase):
         self.plr.test_input = ["Moat"]
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.actions.get(), 1)
+
+    def test_shadow_from_deck(self):
+        from unittest.mock import patch
+
+        shadow = self.g.get_card_from_pile("Moat")
+        shadow.cardtype = [Card.CardType.ACTION, Card.CardType.SHADOW]
+        self.plr.piles[Piles.HAND].empty()
+        self.plr.add_card(shadow, Piles.DECK)
+        with patch.object(self.plr, "plr_choose_options", return_value=shadow) as choose:
+            self.card.special(self.g, self.plr)
+        self.assertIn(shadow, [value for _, value in choose.call_args.args[1:]])
+        self.assertIn(shadow, self.plr.piles[Piles.PLAYED])
+
+    def test_duration_copy_blocks_play(self):
+        from unittest.mock import patch
+
+        self.plr.piles[Piles.HAND].set("Moat")
+        self.plr.piles[Piles.DURATION].set("Moat")
+        with patch.object(self.plr, "plr_choose_options", side_effect=AssertionError("Duplicate in play")):
+            self.card.special(self.g, self.plr)
 
 
 ###############################################################################

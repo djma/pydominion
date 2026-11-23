@@ -14,24 +14,25 @@ class Card_Tactician(Card.Card):
         self.desc = "Discard hand; +5 cards, +1 buy and +1 action next turn"
         self.name = "Tactician"
         self.cost = 5
-        self.discarded = False
+        self._pending_triggers = 0
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        self.discarded = False
         discard = player.plr_choose_options(
             "Discard hand for good stuff next turn?", ("Keep", False), ("Discard", True)
         )
         if discard and player.piles[Piles.HAND].size():
-            self.discarded = True
+            self._pending_triggers += 1
             player.discard_hand({})
+        self.stay_in_play = self._pending_triggers > 0
 
     def duration(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, str]:
         """+5 Cards, +1 Buy, +1 Action"""
-        if self.discarded:
+        if self._pending_triggers > 0:
             player.pickup_cards(5)
             player.buys.add(1)
             player.add_actions(1)
-            self.discarded = False
+            self._pending_triggers -= 1
+        self.stay_in_play = self._pending_triggers > 0
         return {}
 
 
@@ -65,6 +66,18 @@ class TestTactician(unittest.TestCase):
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 5)
         self.assertEqual(self.plr.actions.get(), 1)
         self.assertEqual(self.plr.buys.get(), 1)
+
+    def test_empty_replay_keeps_pending_trigger(self):
+        self.plr.test_input = ["Discard", "Discard"]
+        self.plr.play_card(self.card)
+        self.plr.play_card(self.card, cost_action=False, move_card=False)
+        self.assertEqual(self.card._pending_triggers, 1)
+        self.assertTrue(self.card.stay_in_play)
+        self.plr.end_turn()
+        self.plr.start_turn()
+        self.assertEqual(len(self.plr.piles[Piles.HAND]), 10)
+        self.assertEqual(self.plr.buys.get(), 2)
+        self.assertEqual(self.card._pending_triggers, 0)
 
 
 ###############################################################################

@@ -12,7 +12,9 @@ class HexPile:
 
     ###########################################################################
     def __getattr__(self, name: str) -> Any:
-        return getattr(self.hx, name)
+        if name == "hx" or "hx" not in self.__dict__:
+            raise AttributeError(name)
+        return getattr(self.__dict__["hx"], name)
 
     ###########################################################################
     def __repr__(self) -> str:

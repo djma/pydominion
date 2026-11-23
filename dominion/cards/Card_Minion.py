@@ -77,8 +77,9 @@ class TestMinion(unittest.TestCase):
         self.assertEqual(self.plr.coins.get(), 0)
         self.assertEqual(self.plr.actions.get(), 1)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 4)
-        # Discard the 5 cards + the minion we added
-        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 5 + 1)
+        # Discard the 5 cards in hand (Minion remains in PLAYED until Clean-up)
+        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 5)
+        self.assertIn("Minion", self.plr.piles[Piles.PLAYED])
         self.assertEqual(self.victim.piles[Piles.HAND].size(), 4)
         self.assertEqual(self.victim.piles[Piles.DISCARD].size(), 5)
 
@@ -90,8 +91,7 @@ class TestMinion(unittest.TestCase):
         self.assertEqual(self.plr.coins.get(), 0)
         self.assertEqual(self.plr.actions.get(), 1)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 4)
-        # Discard the 5 cards + the minion we added
-        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 5 + 1)
+        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 5)
         self.assertEqual(self.victim.piles[Piles.HAND].size(), 4)
         self.assertEqual(self.victim.piles[Piles.DISCARD].size(), 0)
 
@@ -103,8 +103,7 @@ class TestMinion(unittest.TestCase):
         self.assertEqual(self.plr.coins.get(), 0)
         self.assertEqual(self.plr.actions.get(), 1)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 4)
-        # Discard the 5 cards + the minion we added
-        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 5 + 1)
+        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 5)
         self.assertEqual(self.victim.piles[Piles.HAND].size(), 5)
         self.assertEqual(self.victim.piles[Piles.DISCARD].size(), 0)
 

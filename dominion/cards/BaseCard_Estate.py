@@ -15,9 +15,10 @@ class Card_Estate(Card.Card):
 
     @classmethod
     def calc_numcards(cls, game):
-        if game.numplayers == 2:
-            return 8 + game.numplayers * 3
-        return 12 + game.numplayers * 3
+        supply = 8 if game.numplayers <= 2 else 12
+        if getattr(game, "use_shelters", False):
+            return supply
+        return supply + game.numplayers * 3
 
 
 # EOF

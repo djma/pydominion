@@ -11,7 +11,9 @@ class TestLoadTravellers(unittest.TestCase):
     def test_need_travellers(self) -> None:
         self.g = Game.TestGame(numplayers=1, initcards=["Page"])
         self.g.start_game()
-        self.assertTrue(game_setup.FLAGS[Flag.LOADED_TRAVELLERS])
+        self.assertTrue(bool(self.g.config.loaded_travellers))
+        self.assertIn("Treasure Hunter", self.g.card_piles)
+        self.assertNotIn("Soldier", self.g.card_piles)
 
 
 ###############################################################################
@@ -23,12 +25,12 @@ class TestReplaceTraveller(unittest.TestCase):
         self.card = self.g.get_card_from_pile("Page")
 
     def test_replace(self) -> None:
-        """Replace a traveller"""
+        """Replace a traveller (goes to discard pile per Complete Rules Ch. IV p. 31)"""
         self.plr.add_card(self.card, Piles.PLAYED)
         self.plr.test_input = ["replace"]
         self.plr.replace_traveller(self.card, "Treasure Hunter")
-        self.assertNotIn("Page", self.plr.piles[Piles.HAND])
-        self.assertIn("Treasure Hunter", self.plr.piles[Piles.HAND])
+        self.assertNotIn("Page", self.plr.piles[Piles.PLAYED])
+        self.assertIn("Treasure Hunter", self.plr.piles[Piles.DISCARD])
 
     def test_dont_replace(self) -> None:
         """Choose not to replace a traveller"""

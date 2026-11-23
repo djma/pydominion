@@ -22,14 +22,14 @@ class Card_Crown(Card.Card):
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         if player.phase == Player.Phase.ACTION:
-            cards = [_ for _ in player.piles[Piles.HAND] if _.isAction()]
-            _do_twice(player, cards)
+            cards = player.playable_actions()
+            _do_twice(player, cards, source_card=self)
         if player.phase == Player.Phase.BUY:
             cards = [_ for _ in player.piles[Piles.HAND] if _.isTreasure()]
-            _do_twice(player, cards)
+            _do_twice(player, cards, source_card=self)
 
 
-def _do_twice(player: Player.Player, cards: list[Card.Card]):
+def _do_twice(player: Player.Player, cards: list[Card.Card], source_card: Card.Card | None = None):
     """Do something twice"""
     if not cards:
         player.output("No suitable cards")
@@ -38,10 +38,7 @@ def _do_twice(player: Player.Player, cards: list[Card.Card]):
     for _ in cards:
         choices.append((f"Play {_} twice", _))
     if card := player.plr_choose_options("Play which card twice?", *choices):
-        player.move_after_play(card)
-        for i in range(1, 3):
-            player.output(f"Number {i} play of {card}")
-            player.play_card(card, discard=False, cost_action=False)
+        player.play_card_multiple(card, times=2, source_card=source_card)
 
 
 ###############################################################################

@@ -24,29 +24,28 @@ class Card_Island(Card.Card):
         self.victory = 2
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        if ISLAND not in player.specials:
-            player.specials[ISLAND] = PlayArea.PlayArea(initial=[])
+        area = player.get_set_aside_area(ISLAND)
+        player.specials[ISLAND] = area
         if c := player.card_sel(prompt="Select a card to set aside for the rest of the game"):
             card = c[0]
-            player.specials[ISLAND].add(card)
-            player.end_of_game_cards.append(card)
-            player.piles[Piles.HAND].remove(card)
-            player.secret_count += 1
-        if self in player.piles[Piles.PLAYED]:  # If Island is not played from hand
-            player.piles[Piles.PLAYED].remove(self)
-            player.end_of_game_cards.append(self)
-            player.specials[ISLAND].add(self)
-            player.secret_count += 1
+            player.remove_card(card)
+            area.add(card)
+            card.location = Piles.SPECIAL
+        if self in player.piles[Piles.PLAYED]:  # If Island is in play
+            player.remove_card(self)
+            area.add(self)
+            self.location = Piles.SPECIAL
 
     def hook_end_of_game(self, game: Game.Game, player: Player.Player) -> None:
-        for card in player.specials[ISLAND]:
+        area = player.get_set_aside_area(ISLAND)
+        for card in list(area):
             player.output(f"Returning {card} from Island")
+            area.remove(card)
             player.add_card(card)
-            player.specials[ISLAND].remove(card)
 
     def debug_dump(self, player: Player.Player) -> None:
-        if ISLAND in player.specials:
-            player.output(f"Island Reserve: {self}: {player.specials[ISLAND]}")
+        if ISLAND in player.set_aside:
+            player.output(f"Island Reserve: {self}: {player.set_aside[ISLAND]}")
 
 
 ###############################################################################
@@ -70,13 +69,13 @@ class TestIsland(unittest.TestCase):
         self.assertNotIn("Island", self.plr.piles[Piles.DISCARD])
         self.assertNotIn("Province", self.plr.piles[Piles.HAND])
         self.assertNotIn("Province", self.plr.piles[Piles.DISCARD])
-        self.assertEqual(self.plr.secret_count, 2)
-        self.plr.game_over()
-        self.assertIn("Island", self.plr.piles[Piles.DISCARD])
-        self.assertIn("Province", self.plr.piles[Piles.DISCARD])
+        self.assertEqual(len(self.plr.get_set_aside_area(ISLAND)), 2)
         score = self.plr.get_score_details()
         self.assertEqual(score["Island"], 2)
         self.assertEqual(score["Province"], 6)
+        self.plr.game_over()
+        self.assertIn("Island", self.plr.piles[Piles.DISCARD])
+        self.assertIn("Province", self.plr.piles[Piles.DISCARD])
 
     def test_play_alone(self) -> None:
         """Play a island but don't pick another card"""
@@ -86,7 +85,7 @@ class TestIsland(unittest.TestCase):
         self.assertNotIn("Island", self.plr.piles[Piles.PLAYED])
         self.assertNotIn("Island", self.plr.piles[Piles.HAND])
         self.assertNotIn("Island", self.plr.piles[Piles.DISCARD])
-        self.assertEqual(self.plr.secret_count, 1)
+        self.assertEqual(len(self.plr.get_set_aside_area(ISLAND)), 1)
         self.plr.game_over()
         self.assertIn("Island", self.plr.piles[Piles.DISCARD])
         score = self.plr.get_score_details()

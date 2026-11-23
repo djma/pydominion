@@ -15,6 +15,8 @@ class Card_GladiatorSplit(Card.Card):
         Card.Card.__init__(self)
         self.name = "Gladiator"
         self.base = Card.CardExpansion.EMPIRES
+        self.cardtype = [Card.CardType.ACTION]
+        self.cost = 3
 
     @classmethod
     def cardpile_setup(cls, game: Game.Game) -> CardPile.CardPile:
@@ -26,10 +28,15 @@ class GladiatorCardPile(CardPile.CardPile):
     """Gladiator Pile"""
 
     def __init__(self, game: Game.Game) -> None:
-        mapping = game_setup.get_card_classes("Split", game_setup.PATHS[Keys.CARDS], "Card_")
-        for name, class_ in mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+        # pylint: disable=import-outside-toplevel
+        from dominion.cards.Split_Gladiator import Card_Gladiator
+        from dominion.cards.Split_Fortune import Card_Fortune
+
+        for klass in (Card_Gladiator, Card_Fortune):
+            inst = klass()
+            inst.game = game
+            game.card_instances[inst.name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards: int = 0, card_class: Optional[type[Card.Card]] = None) -> None:
         # pylint: disable=import-outside-toplevel

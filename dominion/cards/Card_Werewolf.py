@@ -27,9 +27,10 @@ class Card_Werewolf(Card.Card):
         player.pickup_cards(3)
 
     def night(self, game: "Game.Game", player: "Player.Player") -> None:
-        for plr in player.attack_victims():
+        victims = player.attack_victims()
+        for plr in victims:
             plr.output(f"{player}'s werewolf hexed you")
-            plr.receive_hex()
+        game.distribute_hex(player, victims)
 
 
 ###############################################################################

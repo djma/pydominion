@@ -17,6 +17,7 @@ class Card_Potion(Card.Card):
         self.name = "Potion"
         self.potion = 1
         self.cost = 4
+        self.numcards = 16
 
 
 # EOF

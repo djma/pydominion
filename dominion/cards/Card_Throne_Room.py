@@ -25,10 +25,7 @@ class Card_ThroneRoom(Card.Card):
         choices.insert(0, ("Don't play a card", None))
 
         if choice := player.plr_choose_options("Play which action card twice?", *choices):
-            player.output(f"Play 1 of {choice}")
-            player.play_card(choice, discard=False, cost_action=False)
-            player.output(f"Play 2 of {choice}")
-            player.play_card(choice, cost_action=False)
+            player.play_card_multiple(choice, times=2, source_card=self)
 
 
 ###############################################################################

@@ -24,6 +24,9 @@ class Card_Druid(Card.Card):
         self.cost = 2
 
     def setup(self, game: Game.Game) -> None:
+        game.specials.setdefault("_setup_done", set()).add(self.name)
+        if DRUID in game.specials:
+            return
         game.specials[DRUID] = PlayArea.PlayArea(initial=[])
         random.shuffle(game.boons)
         for _ in range(3):
@@ -45,6 +48,14 @@ class TestDruid(unittest.TestCase):
         self.plr = self.g.player_list()[0]
         self.card = self.g.get_card_from_pile("Druid")
         self.plr.add_card(self.card, Piles.HAND)
+
+    def test_setup_twice(self) -> None:
+        """A second setup must preserve all twelve Boons."""
+        before = list(self.g.specials[DRUID])
+        self.card.setup(self.g)
+        self.assertEqual(list(self.g.specials[DRUID]), before)
+        self.assertEqual(len(self.g.boons), 9)
+        self.assertEqual(len(before), 3)
 
     def test_play(self) -> None:
         """Play a Druid"""

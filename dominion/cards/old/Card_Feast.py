@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import unittest
-from typing import Optional
 
 from dominion import Card, Game, Piles, Player
 
@@ -18,25 +17,11 @@ class Card_Feast(Card.Card):
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         """Trash this card. Gain a card costing up to 5"""
-        if self.trash_card(player):
-            self.selectNewCard(game, player)
-
-    def selectNewCard(self, game: Game.Game, player: Player.Player):
-        player.output("Gain a card costing up to 5")
-        choices: list[tuple[str, Optional[Card.Card]]] = [("Nothing", None)]
-        for buyable in player.cards_under(5):
-            choices.append((f"Get {buyable} ({buyable.cost} coin)", buyable))
-
-        if card := player.plr_choose_options("What card do you wish?", *choices):
-            player.gain_card(card.name)
-            player.output(f"Took {card}")
-
-    def trash_card(self, player):
-        ans = player.plr_choose_options("Trash this card?", ("Keep this card", False), ("Trash this card", True))
-        if ans:
+        if self.location == Piles.PLAYED and self in player.piles[Piles.PLAYED]:
             player.trash_card(self)
-            return True
-        return False
+        candidates = player.cards_under(5)
+        if candidates:
+            player.plr_gain_card(5, cardsrc=candidates, force=True)
 
 
 ###############################################################################
@@ -53,42 +38,27 @@ class TestFeast(unittest.TestCase):
         self.card = self.g.get_card_from_pile("Feast")
         self.plr.add_card(self.card, Piles.HAND)
 
-    def test_dontTrash(self):
-        tsize = self.g.trash_pile.size()
-        self.plr.test_input = ["keep this"]
+    def test_trash_and_gain(self):
+        self.plr.test_input = ["Get Duchy"]
         self.plr.play_card(self.card)
-        self.assertEqual(self.g.trash_pile.size(), tsize)
-        try:
-            self.assertEqual(self.plr.piles[Piles.PLAYED][0].name, "Feast")
-        except AssertionError:  # pragma: no cover
-            self.g.print_state()
-            raise
+        self.assertIn(self.card, self.g.trash_pile)
+        self.assertTrue(self.plr.piles[Piles.PLAYED].is_empty())
+        self.assertIn("Duchy", self.plr.piles[Piles.DISCARD])
 
-    def test_trashForNothing(self):
-        tsize = self.g.trash_pile.size()
-        try:
-            self.plr.test_input = ["trash", "nothing"]
+    def test_replay_still_gains(self):
+        self.plr.test_input = ["Get Duchy", "Get Silver"]
+        self.plr.play_card(self.card)
+        self.plr.play_card(self.card, cost_action=False, move_card=False)
+        self.assertEqual(sum(c is self.card for c in self.g.trash_pile), 1)
+        self.assertIn("Duchy", self.plr.piles[Piles.DISCARD])
+        self.assertIn("Silver", self.plr.piles[Piles.DISCARD])
+
+    def test_no_eligible_cards(self):
+        from unittest.mock import patch
+
+        with patch.object(self.plr, "cards_under", return_value=[]):
             self.plr.play_card(self.card)
-            self.assertEqual(self.g.trash_pile.size(), tsize + 1)
-            self.assertIn("Feast", self.g.trash_pile)
-            self.assertTrue(self.plr.piles[Piles.PLAYED].is_empty())
-        except AssertionError:  # pragma: no cover
-            self.g.print_state()
-            raise
-
-    def test_trashForSomething(self):
-        tsize = self.g.trash_pile.size()
-        self.plr.test_input = ["trash", "Get Duchy"]
-        self.plr.play_card(self.card)
-        try:
-            self.assertEqual(self.g.trash_pile.size(), tsize + 1)
-            self.assertIn("Feast", self.g.trash_pile)
-            self.assertTrue(self.plr.piles[Piles.PLAYED].is_empty())
-            self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 1)
-            self.assertIsNotNone(self.plr.piles[Piles.DISCARD]["Duchy"])
-        except AssertionError:  # pragma: no cover
-            self.g.print_state()
-            raise
+        self.assertIn(self.card, self.g.trash_pile)
 
 
 ###############################################################################

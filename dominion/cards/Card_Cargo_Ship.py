@@ -23,7 +23,7 @@ class Card_CargoShip(Card.Card):
 
     ###########################################################################
     def hook_gain_card(self, game: Game.Game, player: Player.Player, card: Card.Card) -> dict[OptionKeys, Any]:
-        if self.location != Piles.DURATION:  # Only works if played this turn
+        if self.location != Piles.PLAYED:  # Only works if played this turn
             return {}
         if card.location == Piles.SPECIAL:  # Card already moved
             return {}
@@ -32,19 +32,19 @@ class Card_CargoShip(Card.Card):
                 f"Do you want to set {card} aside to play next turn?", ("No", False), ("Yes", True)
             ):
                 player.do_once(self.uuid)
-                player.specials[self.uuid] = PlayArea.PlayArea(f"Cargo Ship {self.uuid}", initial=[])
-                player.secret_count += 1
-                return {OptionKeys.DESTINATION: player.specials[self.uuid]}
+                area = player.get_set_aside_area(self.uuid)
+                player.specials[self.uuid] = area
+                return {OptionKeys.DESTINATION: area}
         return {}
 
     ###########################################################################
     def duration(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, Any]:
-        if self.uuid in player.specials:
-            for card in player.specials[self.uuid]:
+        if self.uuid in player.set_aside:
+            for card in list(player.set_aside[self.uuid]):
                 player.move_card(card, Piles.HAND)
-                player.secret_count -= 1
                 player.output(f"Moving {card} out of {self}")
-            del player.specials[self.uuid]
+            del player.set_aside[self.uuid]
+            player.specials.pop(self.uuid, None)
         return {}
 
     ###########################################################################
@@ -101,7 +101,10 @@ class TestCargoShip(unittest.TestCase):
         self.plr.play_card(card2)
         self.plr.buy_card("Moat")
         # Only one cargo ship should have the moat
-        self.assertEqual(len(self.plr.specials[self.card.uuid]) + len(self.plr.specials[card2.uuid]), 1)
+        self.assertEqual(
+            len(self.plr.specials.get(self.card.uuid, [])) + len(self.plr.specials.get(card2.uuid, [])),
+            1,
+        )
 
 
 ###############################################################################

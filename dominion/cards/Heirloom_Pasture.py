@@ -22,6 +22,7 @@ class Card_Pasture(Card.Card):
         self.cost = 2
         self.coin = 1
         self.purchasable = False
+        self.insupply = False
 
     def special_score(self, game, player):
         estates = sum(1 for _ in player.all_cards() if _.name == "Estate")
@@ -36,7 +37,9 @@ class Test_Pasture(unittest.TestCase):
         self.g = Game.TestGame(quiet=True, numplayers=1, initcards=["Shepherd"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Pasture")
+        self.card = self.plr.all_cards()["Pasture"]
+        assert self.card is not None
+        self.plr.remove_card(self.card)
 
     def test_play(self):
         """Test play"""

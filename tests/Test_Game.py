@@ -100,16 +100,20 @@ class TestGameOver(unittest.TestCase):
         self.assertTrue(self.g.isGameOver())
 
     def test_colonies(self) -> None:
-        """Someone took the last colony"""
+        """Complete Rules Ch. II p. 15: In a Colony game, emptying EITHER Province OR Colony ends the game."""
         g = Game.TestGame(numplayers=2, prosperity=True)
         g.start_game()
         plr = g.player_list()[0]
         while g.card_piles["Province"]:
             plr.gain_card("Province")
-        self.assertFalse(g.isGameOver())
-        while g.card_piles["Colony"]:
-            plr.gain_card("Colony")
         self.assertTrue(g.isGameOver())
+
+        g2 = Game.TestGame(numplayers=2, prosperity=True)
+        g2.start_game()
+        plr2 = g2.player_list()[0]
+        while g2.card_piles["Colony"]:
+            plr2.gain_card("Colony")
+        self.assertTrue(g2.isGameOver())
 
     def test_three_stacks(self) -> None:
         """Three stacks are empty"""

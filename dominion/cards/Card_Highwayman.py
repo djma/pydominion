@@ -41,7 +41,7 @@ Until then, the first Treasure each other player plays each turn does nothing.""
             return {}
         if player == owner:
             return {}
-        treas_played = any(True for _ in player.piles[Piles.PLAYED] if _.isTreasure())
+        treas_played = any(c is not card and c.isTreasure() for c in player.played_this_turn)
         if treas_played:
             return {}
         player.output(f"{owner}'s Highwayman cancel your {card}")

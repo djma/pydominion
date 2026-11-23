@@ -23,6 +23,7 @@ class Card_Warrior(Card.Card):
         costs 3 or 4; Discard to replace with Hero"""
         self.name = "Warrior"
         self.purchasable = False
+        self.insupply = False
         self.cards = 2
         self.cost = 4
         self.numcards = 5
@@ -51,6 +52,8 @@ class Card_Warrior(Card.Card):
 
     def hook_discard_this_card(self, game, player, source):
         """Replace with Hero"""
+        if source != Piles.PLAYED and source is not player.piles[Piles.PLAYED]:
+            return
         player.replace_traveller(self, "Hero")
 
 
@@ -90,6 +93,17 @@ class TestWarrior(unittest.TestCase):
         self.plr.test_input = ["keep"]
         self.plr.play_card(self.card)
         self.plr.end_turn()
+
+    def test_exchange_only_from_play(self):
+        from unittest.mock import patch
+
+        with patch.object(self.plr, "replace_traveller") as exchange:
+            for source in (Piles.HAND, Piles.EXILE, self.plr.piles[Piles.HAND], self.plr.piles[Piles.EXILE]):
+                self.card.hook_discard_this_card(self.g, self.plr, source)
+            exchange.assert_not_called()
+            for source in (Piles.PLAYED, self.plr.piles[Piles.PLAYED]):
+                self.card.hook_discard_this_card(self.g, self.plr, source)
+            self.assertEqual(exchange.call_count, 2)
 
 
 ###############################################################################

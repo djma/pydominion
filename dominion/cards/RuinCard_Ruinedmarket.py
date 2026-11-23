@@ -14,7 +14,7 @@ class Card_RuinedMarket(Card.Card):
         self.base = Card.CardExpansion.DARKAGES
         self.name = "Ruined Market"
         self.desc = "+1 Buy"
-        self.purchasable = False
+        self.purchasable = True
         self.cost = 0
         self.buys = 1
         self.pile = "Ruins"

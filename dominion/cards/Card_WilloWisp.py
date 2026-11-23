@@ -19,6 +19,7 @@ class Card_WilloWisp(Card.Card):
         self.actions = 1
         self.insupply = False
         self.cost = 0
+        self.numcards = 12
 
     def special(self, game: "Game.Game", player: "Player.Player") -> None:
         try:

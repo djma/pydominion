@@ -19,10 +19,8 @@ class Card_Highway(Card.Card):
         self.actions = 1
         self.cost = 5
 
-    def hook_card_cost(self, game: "Game.Game", player: "Player.Player", card: "Card") -> int:
-        if self in player.piles[Piles.PLAYED]:
-            return -1
-        return 0
+    def special(self, game: "Game.Game", player: "Player.Player") -> None:
+        player.turn_effects.add_cost_modifier("Highway", -1)
 
 
 ###############################################################################

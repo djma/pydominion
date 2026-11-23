@@ -55,11 +55,11 @@ class Test_Taskmaster(unittest.TestCase):
         self.assertEqual(self.plr.coins.get(), 0)
 
     def test_play_gain(self):
-        """Play a Taskmaster with gain"""
+        """Play a Taskmaster and gain a $5 card this turn"""
         actions = self.plr.actions.get()
         coins = self.plr.coins.get()
-        self.plr.gain_card("Duchy")
         self.plr.play_card(self.card)
+        self.plr.gain_card("Duchy")
         self.assertEqual(self.plr.actions.get(), actions + 1 - 1)
         self.assertEqual(self.plr.coins.get(), coins + 1)
         self.plr.end_turn()

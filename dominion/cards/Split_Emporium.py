@@ -29,7 +29,7 @@ class Card_Emporium(Card.Card):
 
     ###########################################################################
     def hook_gain_this_card(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, str]:
-        count = sum(1 for _ in player.piles[Piles.PLAYED] if _.isAction())
+        count = sum(1 for _ in player.in_play_cards() if _.isAction())
         if count >= 5:
             player.add_score("Emporium", 2)
             player.output("Gained 2VP from Emporium")
@@ -57,10 +57,11 @@ class Test_Emporium(unittest.TestCase):
         self.assertEqual(self.plr.actions.get(), 1)
 
     def test_gain_with_actions(self) -> None:
-        """Play the Emporium having played lots of actions"""
+        """Gain the Emporium having played 5 actions"""
         self.plr.piles[Piles.PLAYED].set("Moat", "Moat", "Moat", "Moat", "Moat")
-        for _ in range(6):  # Get the Patricians off the top of the stack
-            self.plr.gain_card("Emporium")
+        for _ in range(5):  # Clear the 5 Patricians on top of the split pile
+            self.plr.gain_card("Patrician")
+        self.plr.gain_card("Emporium")
         self.assertEqual(self.plr.get_score_details()["Emporium"], 2)
 
 

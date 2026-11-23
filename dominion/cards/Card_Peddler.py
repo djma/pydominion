@@ -2,7 +2,7 @@
 """https://wiki.dominionstrategy.com/index.php/Peddler"""
 import unittest
 
-from dominion import Game, Card, Player
+from dominion import Game, Card, Player, Phase
 from dominion.Player import Piles
 
 
@@ -23,8 +23,10 @@ class Card_Peddler(Card.Card):
         self.cost = 8
 
     def hook_this_card_cost(self, game: "Game.Game", player: "Player.Player") -> int:
+        if player.phase != Phase.BUY:
+            return 0
         cost = 0
-        for card in player.piles[Piles.PLAYED]:
+        for card in player.in_play_cards():
             if card.isAction():
                 cost -= 2
         return max(cost, -8)
@@ -51,6 +53,9 @@ class TestPeddler(unittest.TestCase):
     def test_buy(self):
         """test buy"""
         self.plr.piles[Piles.PLAYED].set("Moat")
+        self.plr.phase = Phase.ACTION
+        self.assertEqual(self.plr.card_cost(self.card), 8)
+        self.plr.phase = Phase.BUY
         cost = self.plr.card_cost(self.card)
         self.assertEqual(cost, 6)
 

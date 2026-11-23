@@ -13,8 +13,8 @@ class Card_Wizards(Card.Card):
         Card.Card.__init__(self)
         self.name = "Wizards"
         self.base = Card.CardExpansion.ALLIES
-        self.cardtype = [Card.CardType.ACTION, Card.CardType.LIAISON]
-        self.required_cards = ["Curse"]
+        self.cardtype = [Card.CardType.ACTION, Card.CardType.WIZARD]
+        self.cost = 3
 
     @classmethod
     def cardpile_setup(cls, game: Game.Game) -> "WizardCardPile":
@@ -27,10 +27,12 @@ class WizardCardPile(CardPile.CardPile):
     """Wizards Card Pile"""
 
     def __init__(self, game: Game.Game) -> None:
-        mapping = game_setup.get_card_classes("Wizard", game_setup.PATHS[Keys.CARDS], "Card_")
+        mapping = game_setup.get_card_classes("Wizard", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards=0, card_class=None) -> None:
         # pylint: disable=import-outside-toplevel

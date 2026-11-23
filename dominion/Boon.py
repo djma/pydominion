@@ -10,7 +10,9 @@ class BoonPile:
 
     ###########################################################################
     def __getattr__(self, name):
-        return getattr(self.boon, name)
+        if name == "boon" or "boon" not in self.__dict__:
+            raise AttributeError(name)
+        return getattr(self.__dict__["boon"], name)
 
     ###########################################################################
     def __repr__(self):

@@ -23,28 +23,29 @@ class Card_Archive(Card.Card):
         self.cost = 5
 
     def special(self, game: Game.Game, player: Player.Player):
-        if ARCHIVE not in player.specials:
-            player.specials[ARCHIVE] = PlayArea.PlayArea(initial=[])
+        area = player.get_set_aside_area(ARCHIVE)
+        player.specials[ARCHIVE] = area
         for _ in range(3):
             try:
                 card = player.next_card()
             except NoCardException:
                 continue
             player.output(f"Putting {card} in the archive")
-            player.specials[ARCHIVE].add(card)
+            area.add(card)
             card.location = Piles.SPECIAL
-            player.secret_count += 1
-        self.permanent = True
+        self.permanent = not area.is_empty()
+        self.stay_in_play = not area.is_empty()
 
     def duration(self, game: "Game.Game", player: "Player.Player") -> dict[OptionKeys, str]:
-        options = [(f"Bring back {_}", _) for _ in player.specials[ARCHIVE]]
+        area = player.get_set_aside_area(ARCHIVE)
+        options = [(f"Bring back {_}", _) for _ in area]
         if not options:
+            self.permanent = False
             return {}
         if card := player.plr_choose_options("What card to bring back from the Archive?", *options):
+            area.remove(card)
             player.add_card(card, Piles.HAND)
-            player.specials[ARCHIVE].remove(card)
-            player.secret_count -= 1
-        if player.specials[ARCHIVE].is_empty():
+        if area.is_empty():
             self.permanent = False
         return {}
 

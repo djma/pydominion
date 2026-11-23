@@ -15,6 +15,7 @@ class Card_LuckyCoin(Card.Card):
         self.cost = 4
         self.coin = 1
         self.purchasable = False
+        self.insupply = False
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         try:
@@ -29,7 +30,9 @@ class TestLuckyCoin(unittest.TestCase):
         self.g = Game.TestGame(quiet=True, numplayers=1, initcards=["Fool"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Lucky Coin")
+        self.card = self.plr.all_cards()["Lucky Coin"]
+        assert self.card is not None
+        self.plr.remove_card(self.card)
 
     def test_play(self) -> None:
         self.plr.add_card(self.card, Piles.HAND)

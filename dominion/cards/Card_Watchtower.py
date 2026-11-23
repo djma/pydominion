@@ -28,6 +28,8 @@ class Card_Watchtower(Card.Card):
         """When you gain a card, you may reveal this from your
         hand. If you do, either trash that card, or put it on top
         of your deck"""
+        if self.location != Piles.HAND:
+            return {}
         options: dict[OptionKeys, Any] = {}
         act = player.plr_choose_options(
             "What to do with Watchtower?",

@@ -19,6 +19,13 @@ class Card_Charlatan(Card.Card):
         self.name = "Charlatan"
         self.cost = 5
         self.required_cards = ["Curse"]
+        self.global_dynamic_type = True
+
+    def hook_add_dynamic_card_type(self, card: Card.Card) -> Card.CardType:
+        """In games using this, Curse is also a Treasure worth $1."""
+        if card.name == "Curse":
+            return Card.CardType.TREASURE
+        return Card.CardType.UNDEFINED
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         for victim in player.attack_victims():

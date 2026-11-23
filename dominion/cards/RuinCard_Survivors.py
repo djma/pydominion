@@ -11,7 +11,7 @@ class Card_Survivors(Card.Card):
         Card.Card.__init__(self)
         self.cardtype = [Card.CardType.ACTION, Card.CardType.RUIN]
         self.base = Card.CardExpansion.DARKAGES
-        self.purchasable = False
+        self.purchasable = True
         self.cost = 0
         self.desc = "Look at the top 2 cards of your deck. Discard them or put them back in any order."
         self.name = "Survivors"

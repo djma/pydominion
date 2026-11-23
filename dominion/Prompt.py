@@ -1,9 +1,10 @@
-"""Code relating to printing stuff for player prompts"""
+"""Code relating to generating player choices and terminal overviews."""
 
 import os
 from typing import Optional, TYPE_CHECKING
 
-from dominion import Limits, Piles, Phase, Card, Action
+from dominion import Action, Card, Limits, Phase, Piles
+from dominion.Cost import Cost
 from dominion.Option import Option
 from dominion.PlayArea import PlayArea
 
@@ -18,7 +19,7 @@ def generate_prompt(player: "Player") -> str:
     if player.debt:
         status += f" Debt={player.debt.get()}"
     if player.potions:
-        status += " Potion"
+        status += f" Potion={player.potions.get()}" if player.potions.get() > 1 else " Potion"
     if player.favors:
         status += f" Favours={player.favors.get()}"
     if player.coffers:
@@ -29,8 +30,7 @@ def generate_prompt(player: "Player") -> str:
         status += f" Play Limit={player.limits[Limits.PLAY]}"
     if player.coins:
         status += f" Coins={player.coins.get()}"
-    prompt = f"What to do ({status})?"
-    return prompt
+    return f"What to do ({status})?"
 
 
 ###########################################################################
@@ -43,53 +43,62 @@ def spend_all_details(player: "Player", spendable: list[Card.Card]) -> str:
 
 
 ###########################################################################
-def spendable_selection(player: "Player") -> list[Option]:
-    """Handle selection of what to spend"""
+def anytime_resource_selection(player: "Player") -> list[Option]:
+    """Resources usable at ANY time during your turn (Coffers per 2022 rules, Debt per 2024 rules)."""
     options: list[Option] = []
-    spendable = [_ for _ in player.piles[Piles.HAND] if _.isTreasure()]
-    spendable.sort(key=lambda x: x.name)
-    details = spend_all_details(player, spendable)
-    if spendable:
-        o = Option(
-            selector="1",
-            verb="Spend all treasures",
-            details=details,
-            card=None,
-            action=Action.SPENDALL,
-        )
-        options.append(o)
-
     if player.coffers:
-        o = Option(selector="2", verb="Spend Coffer (+1 coin)", card=None, action=Action.COFFER)
-        options.append(o)
-
+        options.append(Option(selector="2", verb="Spend Coffer (+1 coin)", card=None, action=Action.COFFER))
     if player.debt and player.coins:
-        o = Option(selector="3", verb="Payback Debt", card=None, action=Action.PAYBACK)
-        options.append(o)
+        options.append(Option(selector="3", verb="Payback Debt", card=None, action=Action.PAYBACK))
+    return options
+
+
+###########################################################################
+def spendable_selection(player: "Player") -> list[Option]:
+    """Handle selection of Treasures (Buy phase part 1 only) plus anytime Coffers & Debt."""
+    options: list[Option] = []
+    in_treasure_part = getattr(player, "buy_phase_part", 1) == 1
+    spendable = [_ for _ in player.piles[Piles.HAND] if _.isTreasure()] if in_treasure_part else []
+    spendable.sort(key=lambda x: x.name)
+
+    if spendable:
+        details = spend_all_details(player, spendable)
+        options.append(
+            Option(
+                selector="1",
+                verb="Spend all treasures",
+                details=details,
+                card=None,
+                action=Action.SPENDALL,
+            )
+        )
+
+    options.extend(anytime_resource_selection(player))
 
     index = 4
     for card in spendable:
         tp = f"{player.hook_spend_value(card)} coin; {card.get_cardtype_repr()}"
-        o = Option(
-            selector=str(index),
-            name=card.name,
-            details=tp,
-            verb="Spend",
-            card=card,
-            action=Action.SPEND,
-            desc=card.description(player),
+        options.append(
+            Option(
+                selector=str(index),
+                name=card.name,
+                details=tp,
+                verb="Spend",
+                card=card,
+                action=Action.SPEND,
+                desc=card.description(player),
+            )
         )
-        options.append(o)
         index += 1
 
     return options
 
 
 ###########################################################################
-def get_all_purchasable(player) -> PlayArea:
-    """Return all potentially purchasable cards"""
+def get_all_purchasable(player: "Player") -> PlayArea:
+    """Return all potentially purchasable cards from the Supply."""
     all_cards = PlayArea("all_purchasable")
-    for _, pile in player.game.get_card_piles():
+    for _, pile in player.game.get_supply_piles():
         if pile.is_empty():
             continue
         card = pile.get_top_card()
@@ -109,6 +118,8 @@ def can_buy(player: "Player", card: Card.Card, buyable: list[Card.Card]) -> bool
         return False
     if player.buys.get() <= 0:
         return False
+    if player.limits[Limits.BUY] <= 0:
+        return False
     if card not in buyable:
         return False
     if card in player.forbidden_to_buy:
@@ -118,10 +129,15 @@ def can_buy(player: "Player", card: Card.Card, buyable: list[Card.Card]) -> bool
 
 ###########################################################################
 def buyable_selection(player: "Player", index: int) -> tuple[list[Option], int]:
-    """Handle selection of what to buy"""
+    """Handle selection of what to buy from the Supply."""
     options: list[Option] = []
     all_cards = get_all_purchasable(player)
-    buyable = player.cards_under(coin=player.coins.get(), num_potions=player.potions.get(), debt_ok=True)
+    buyable = player.cards_under(
+        coin=player.coins.get(),
+        num_potions=player.potions.get(),
+        debt_ok=True,
+        for_buy=True,
+    )
     for card in all_cards:
         if not player.hook_allowed_to_buy(card):
             if card in buyable:
@@ -134,84 +150,95 @@ def buyable_selection(player: "Player", index: int) -> tuple[list[Option], int]:
             sel = "-"
             verb = ""
             action = Action.NONE
+        pile = player.game.card_piles[card.pile]
         details = [player._cost_string(card)]
-        if player.game.card_piles[card.pile].embargo_level:
-            details.append(f"Embargo {player.game.card_piles[card.pile].embargo_level}")
-        if player.game.card_piles[card.pile].getVP():
-            details.append(f"Gathered {player.game.card_piles[card.name].getVP()} VP")
+        if pile.embargo_level:
+            details.append(f"Embargo {pile.embargo_level}")
+        if pile.getVP():
+            details.append(f"Gathered {pile.getVP()} VP")
         details.append(card.get_cardtype_repr())
-        details.append(f"{len(player.game.card_piles[card.pile])} left")
-        for tkn in player.which_token(card.name):
+        details.append(f"{len(pile)} left")
+        for tkn in player.which_token(card.pile):
             details.append(f"[Tkn: {tkn}]")
-        o = Option(
-            selector=sel,
-            verb=verb,
-            desc=card.description(player),
-            name=card.name,
-            details="; ".join(details),
-            card=card,
-            action=action,
+        options.append(
+            Option(
+                selector=sel,
+                verb=verb,
+                desc=card.description(player),
+                name=card.name,
+                details="; ".join(details),
+                card=card,
+                action=action,
+            )
         )
-        options.append(o)
         index += 1
     return options, index
 
 
 ###########################################################################
 def event_selection(player: "Player", index: int) -> tuple[list[Option], int]:
-    """Generate player options for selecting events"""
+    """Generate player options for selecting events (printed cost only, no cost reduction)."""
     options: list[Option] = []
     for op in player.game.events.values():
         index += 1
-        if op.cost <= player.coins.get() and player.buys and not player.debt:
+        ev_cost = Cost.from_card(op)
+        if (ev_cost.can_be_paid_by(player.coins.get(), player.potions.get())
+                and player.buys and not player.debt and player.event_available(op)):
             sel = chr(ord("a") + index)
             action = Action.EVENT
         else:
             sel = "-"
             action = Action.NONE
-        details = f"Event; {player._cost_string(op)}"
-        o = Option(
-            selector=sel,
-            verb="Use",
-            desc=op.description(player),
-            name=op.name,
-            details=details,
-            card=op,
-            action=action,
+        details = f"Event; {ev_cost.format_str()}"
+        options.append(
+            Option(
+                selector=sel,
+                verb="Use",
+                desc=op.description(player),
+                name=op.name,
+                details=details,
+                card=op,
+                action=action,
+            )
         )
-        options.append(o)
 
     return options, index
 
 
 ###########################################################################
 def project_selection(player: "Player", index: int) -> tuple[Optional[list[Option]], int]:
-    """Allow player to select projects"""
+    """Allow player to select projects (blocked by Debt, max 2 projects, no duplicates)."""
     if not player.game.projects:
         return None, index
-    # Can only have two projects
-    if len(player.projects) == 2:
+    if len(player.projects) >= 2:
         return None, index
     options: list[Option] = []
     for op in player.game.projects.values():
         index += 1
-        if (op.cost <= player.coins.get() and player.buys) and (op not in player.projects):
+        pr_cost = Cost.from_card(op)
+        if (
+            pr_cost.can_be_paid_by(player.coins.get(), player.potions.get())
+            and player.buys
+            and not player.debt
+            and op not in player.projects
+        ):
             sel = chr(ord("a") + index)
             action = Action.PROJECT
         else:
             sel = "-"
             action = Action.NONE
-        details = f"Project; {player._cost_string(op)}"
-        o = Option(
-            selector=sel,
-            verb="Buy",
-            desc=op.description(player),
-            name=op.name,
-            details=details,
-            card=op,
-            action=action,
+        details = f"Project; {pr_cost.format_str()}"
+        options.append(
+            Option(
+                selector=sel,
+                verb="Buy",
+                desc=op.description(player),
+                name=op.name,
+                details=details,
+                card=op,
+                action=action,
+            )
         )
-        options.append(o)
 
     return options, index
 
@@ -229,16 +256,17 @@ def reserve_selection(player: "Player", index: int) -> tuple[list[Option], int]:
         index += 1
         sel = chr(ord("a") + index)
         details = card.get_cardtype_repr()
-        o = Option(
-            selector=sel,
-            name=card.name,
-            verb="Call",
-            details=details,
-            card=card,
-            action=Action.RESERVE,
-            desc=card.description(player),
+        options.append(
+            Option(
+                selector=sel,
+                name=card.name,
+                verb="Call",
+                details=details,
+                card=card,
+                action=Action.RESERVE,
+                desc=card.description(player),
+            )
         )
-        options.append(o)
 
     return options, index
 
@@ -248,11 +276,11 @@ def night_selection(player: "Player", index: int) -> tuple[list[Option], int]:
     """Handle selection of what night cards to play"""
     options: list[Option] = []
     nights = [_ for _ in player.piles[Piles.HAND] if _.isNight()]
-    if nights:
-        for n in nights:
-            sel = chr(ord("a") + index)
-            details = n.get_cardtype_repr()
-            o = Option(
+    for n in nights:
+        sel = chr(ord("a") + index)
+        details = n.get_cardtype_repr()
+        options.append(
+            Option(
                 verb="Play",
                 selector=sel,
                 name=n.name,
@@ -261,33 +289,35 @@ def night_selection(player: "Player", index: int) -> tuple[list[Option], int]:
                 action=Action.PLAY,
                 desc=n.description(player),
             )
-            options.append(o)
-            index += 1
+        )
+        index += 1
     return options, index
 
 
 ###########################################################################
 def playable_selection(player: "Player", index: int) -> tuple[list[Option], int]:
-    """Handle selection of what to play"""
+    """Handle selection of what Actions/Villagers/Ways/Shadows to play in Action phase."""
     options: list[Option] = []
-    playable = [_ for _ in player.piles[Piles.HAND] if _.playable and _.isAction()]
     if player.villagers:
-        o = Option(
-            selector="1",
-            verb="Spend Villager (+1 action)",
-            card=None,
-            action=Action.VILLAGER,
+        options.append(
+            Option(
+                selector="1",
+                verb="Spend Villager (+1 action)",
+                card=None,
+                action=Action.VILLAGER,
+            )
         )
-        options.append(o)
 
-    for card in playable:
-        sel = chr(ord("a") + index)
-        options.append(card_option(card, player, sel))
-        index += 1
-        way_options, index = way_selection(player, card, index)
-        options.extend(way_options)
-    shadow_options, index = shadow_selection(player, index)
-    options.extend(shadow_options)
+    if player.actions.get() > 0:
+        playable = [_ for _ in player.piles[Piles.HAND] if _.playable and _.isAction()]
+        for card in playable:
+            sel = chr(ord("a") + index)
+            options.append(card_option(card, player, sel))
+            index += 1
+            way_options, index = way_selection(player, card, index)
+            options.extend(way_options)
+        shadow_options, index = shadow_selection(player, index)
+        options.extend(shadow_options)
     return options, index
 
 
@@ -296,29 +326,32 @@ def way_selection(player: "Player", card: "Card.Card", index: int) -> tuple[list
     options: list[Option] = []
     for way in player.game.ways.values():
         sel = chr(ord("a") + index)
-        o = Option(
-            verb="Play",
-            selector=sel,
-            name=way.name,
-            desc=f"{card.name}: {way.description(player)}",
-            action=Action.WAY,
-            card=card,
-            way=way,
+        options.append(
+            Option(
+                verb="Play",
+                selector=sel,
+                name=way.name,
+                desc=f"{card.name}: {way.description(player)}",
+                action=Action.WAY,
+                card=card,
+                way=way,
+            )
         )
-        options.append(o)
         index += 1
     return options, index
 
 
 ###########################################################################
 def shadow_selection(player: "Player", index: int) -> tuple[list[Option], int]:
-    """Play shadow cards"""
+    """Play Shadow Action cards directly from the deck (including via Ways)."""
     options: list[Option] = []
-    shadows = [_ for _ in player.piles[Piles.DECK] if _.isShadow() and _.isAction()]
+    shadows = [_ for _ in player.piles[Piles.DECK] if _.isShadow() and _.isAction() and _.playable]
     for shadow in shadows:
         sel = chr(ord("a") + index)
         options.append(card_option(shadow, player, sel))
         index += 1
+        way_options, index = way_selection(player, shadow, index)
+        options.extend(way_options)
     return options, index
 
 
@@ -334,23 +367,22 @@ def card_option(card: Card.Card, player: "Player", selector: str) -> Option:
         card=card,
         details=details,
     )
-    notes = ""
-    for tkn in player.which_token(card.name):
-        notes += f"[Tkn: {tkn}]"
+    notes = "".join(f"[Tkn: {tkn}]" for tkn in player.which_token(card.pile))
     o["notes"] = notes
     return o
 
 
 ###########################################################################
 def choice_selection(player: "Player") -> list[Option]:
+    """Build phase-appropriate turn options (with anytime Coffers & Debt)."""
     index = 0
-    o = Option(selector="0", verb="End Phase", card=None, action=Action.QUIT)
-    options: list[Option] = [o]
+    options: list[Option] = [Option(selector="0", verb="End Phase", card=None, action=Action.QUIT)]
 
     if player.phase == Phase.ACTION:
         if player.actions or player.villagers:
             op_p, index = playable_selection(player, index)
             options.extend(op_p)
+        options.extend(anytime_resource_selection(player))
 
     if player.phase == Phase.BUY:
         op_s = spendable_selection(player)
@@ -366,6 +398,7 @@ def choice_selection(player: "Player") -> list[Option]:
     if player.phase == Phase.NIGHT:
         op, index = night_selection(player, index)
         options.extend(op)
+        options.extend(anytime_resource_selection(player))
 
     if player.piles[Piles.RESERVE].size():
         op_r, index = reserve_selection(player, index)
@@ -435,9 +468,7 @@ def display_piles_overview(player: "Player") -> None:
     else:
         player.output(f"| Deck Size: {len(player.piles[Piles.DECK])}")
 
-    player.output(
-        f"| Discard ({len(player.piles[Piles.DISCARD])}): {pile_display(player.piles[Piles.DISCARD])}"
-    )  # Debug
+    player.output(f"| Discard ({len(player.piles[Piles.DISCARD])}): {pile_display(player.piles[Piles.DISCARD])}")
 
 
 ###########################################################################
@@ -463,7 +494,7 @@ def display_overview(player: "Player") -> None:
 
     display_piles_overview(player)
 
-    player.output(f"| Trash ({len(player.game.trash_pile)}): {pile_display(player.game.trash_pile)}")  # Debug
+    player.output(f"| Trash ({len(player.game.trash_pile)}): {pile_display(player.game.trash_pile)}")
     player.output(f"| {player.piles[Piles.DISCARD].size()} cards in discard pile")
     player.output("-" * 50)
 

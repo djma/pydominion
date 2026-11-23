@@ -21,13 +21,16 @@ class Card_SecludedShrine(Card.Card):
         self.permanent = True
 
     def hook_gain_card(self, game: Game.Game, player: Player.Player, card: Card.Card) -> dict[OptionKeys, Any]:
-        if self.location != Piles.DURATION:  # pragma: no coverage
+        if self.location not in (Piles.PLAYED, Piles.DURATION):  # pragma: no coverage
             return {}
         if not card.isTreasure():  # pragma: no coverage
             return {}
         if player.piles[Piles.HAND].size() == 0:  # pragma: no coverage
             return {}
-        player.move_card(self, Piles.DISCARD)
+        player.cancel_duration_stay(self)
+        self.permanent = False
+        if self.location == Piles.DURATION:
+            player.move_card(self, Piles.PLAYED)
         player.plr_trash_card(
             num=2,
             cardsrc=Piles.HAND,

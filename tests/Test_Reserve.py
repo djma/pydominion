@@ -28,11 +28,13 @@ class TestGetWhens(unittest.TestCase):
         self.assertIn(Whens.ANY, whens)
 
     def test_post_action(self) -> None:
-        self.plr.piles[Piles.PLAYED].set("Moat")
         self.plr.phase = Phase.ACTION
+        moat = self.g.get_card_from_pile("Moat")
+        self.plr.add_card(moat, Piles.HAND)
+        self.plr.play_card(moat)
         whens = self.plr._get_whens()
         self.assertIn(Whens.POSTACTION, whens)
-        self.plr.piles[Piles.PLAYED].set("Copper")
+        self.plr._perform_action({"action": Action.SPENDALL})
         whens = self.plr._get_whens()
         self.assertNotIn(Whens.POSTACTION, whens)
 

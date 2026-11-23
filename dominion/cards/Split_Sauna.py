@@ -75,8 +75,9 @@ class TestSauna(unittest.TestCase):
         self.assertIn("Avanto", self.plr.piles[Piles.PLAYED])
 
     def test_play_silver(self) -> None:
-        """Play a Silver"""
-        self.plr.piles[Piles.HAND].set("Sauna", "Estate", "Duchy")
+        """Play a Silver after Sauna is in play"""
+        self.plr.piles[Piles.PLAYED].set("Sauna")
+        self.plr.piles[Piles.HAND].set("Estate", "Duchy")
         silver = self.g.get_card_from_pile("Silver")
         self.plr.add_card(silver, Piles.HAND)
         self.plr.test_input = ["Trash Duchy"]

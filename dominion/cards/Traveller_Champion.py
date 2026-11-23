@@ -15,6 +15,7 @@ class Card_Champion(Card.Card):
         self.name = "Champion"
         self.permanent = True
         self.purchasable = False
+        self.insupply = False
         self.defense = True
         self.numcards = 5
         self.cost = 6
@@ -22,6 +23,8 @@ class Card_Champion(Card.Card):
     def hook_post_play(
         self, game: "Game.Game", player: "Player.Player", card: "Card.Card"
     ) -> dict[OptionKeys, str]:
+        if self.location not in (Piles.PLAYED, Piles.DURATION):
+            return {}
         if card.isAction():
             player.add_actions(1)
         return {}

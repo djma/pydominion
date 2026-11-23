@@ -40,8 +40,9 @@ class Test_Tide_Pools(unittest.TestCase):
         """Play a tide pools"""
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 5 + 3)
-        self.assertEqual(self.plr.piles[Piles.DURATION].size(), 1)
+        self.assertEqual(self.plr.piles[Piles.PLAYED].size(), 1)
         self.plr.end_turn()
+        self.assertEqual(self.plr.piles[Piles.DURATION].size(), 1)
         self.plr.test_input = ["Discard Copper", "Discard Silver", "Finish"]
         self.plr.piles[Piles.HAND].set("Copper", "Silver", "Gold", "Estate", "Duchy")
         self.plr.start_turn()

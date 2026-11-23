@@ -2,6 +2,7 @@
 """https://wiki.dominionstrategy.com/index.php/Riverboat"""
 import random
 import unittest
+from unittest.mock import patch
 from typing import Any
 
 from dominion import Game, Card, Player, OptionKeys, game_setup, Keys, Piles
@@ -36,6 +37,8 @@ class Card_Riverboat(Card.Card):
 
     def setup(self, game: Game.Game) -> None:
         """Set aside an unused non-Duration Action card costing $5."""
+        if RIVERBOAT in game.specials:
+            return
         card = self.pick_card(game)
         self.setup_riverboat(game, card)
 
@@ -47,13 +50,15 @@ class Card_Riverboat(Card.Card):
 
             if card.name in game.card_piles.keys():
                 continue
+            if hasattr(card, "cardpile_setup") or not card.desc.strip():
+                continue
             if not card.insupply or not card.purchasable:
                 continue
-            if card.name in game_setup.INIT_CARDS[Keys.BAD_CARDS]:
+            if card.name in game.config.init_cards[Keys.BAD_CARDS]:
                 continue
             if card.isDuration() or not card.isAction():
                 continue
-            if card.cost != 5:
+            if card.cost != 5 or card.potcost or card.debtcost:
                 continue
             actions.append(card.name)
         set_aside = random.choice(actions)
@@ -62,7 +67,11 @@ class Card_Riverboat(Card.Card):
     def setup_riverboat(self, game: Game.Game, set_aside: str):
         """Separate function so we can call it with named card for testing"""
         game.specials[RIVERBOAT] = set_aside
-        game.card_instances[set_aside] = game.card_mapping["Card"][set_aside]()
+        card = game.card_mapping["Card"][set_aside]()
+        card.game = game
+        card.location = Piles.SPECIAL
+        game.card_instances[set_aside] = card
+        game.cards[card.uuid] = card
         game_setup.check_card_requirement(game, game.card_instances[set_aside])
         game.output(f"Using {set_aside} as the card for Riverboat")
 
@@ -82,6 +91,48 @@ class Test_Riverboat(unittest.TestCase):
         self.assertEqual(card.cost, 5)
         self.assertFalse(card.isDuration())
         self.assertTrue(card.isAction())
+
+    def test_no_placeholders(self) -> None:
+        """All candidates must be playable single cards."""
+        with patch("random.choice", side_effect=lambda cards: cards[0]) as choose:
+            self.card.pick_card(self.g)
+        candidates = choose.call_args.args[0]
+        self.assertNotIn("Knights", candidates)
+        for name in candidates:
+            card = self.g.card_mapping["Card"][name]()
+            self.assertTrue(card.desc.strip())
+            self.assertFalse(hasattr(card, "cardpile_setup"))
+
+    def test_baker_setup(self) -> None:
+        """The set-aside card's setup runs once after players exist."""
+        game = Game.TestGame(numplayers=2, num_stacks=1, initcards=["Riverboat"])
+        with patch.object(Card_Riverboat, "pick_card", return_value="Baker"):
+            game.start_game()
+        baker = game.card_instances["Baker"]
+        self.assertIs(baker.game, game)
+        self.assertIs(game.cards[baker.uuid], baker)
+        self.assertEqual(baker.location, Piles.SPECIAL)
+        self.assertEqual([player.coffers.get() for player in game.player_list()], [1, 1])
+        game_setup.card_setup(game)
+        self.assertEqual([player.coffers.get() for player in game.player_list()], [1, 1])
+
+    def test_proportional_checks_use_different_cards(self) -> None:
+        """Shelters and Prosperity draw different Kingdom randomizers."""
+        game = Game.TestGame(num_stacks=2, initcards=["Moat", "Village"], prosperity=None, shelters=True)
+        with patch("dominion.game_setup._proportional_card", wraps=game_setup._proportional_card) as choose:
+            game.start_game()
+        self.assertEqual(choose.call_count, 2)
+        used = choose.call_args_list[0].args[1]
+        self.assertEqual(len(used), 2)
+        self.assertEqual(len(set(used)), 2)
+
+    def test_tournament_prizes(self) -> None:
+        """Tournament uses one of each Prize outside the Supply."""
+        game = Game.TestGame(num_stacks=1, initcards=["Tournament"], oldcards=True)
+        game.start_game()
+        prizes = [pile for _, pile in game.get_all_piles() if not pile.in_supply]
+        self.assertEqual(len(prizes), 5)
+        self.assertEqual([len(pile) for pile in prizes], [1] * 5)
 
     def test_play(self) -> None:
         """Play card"""

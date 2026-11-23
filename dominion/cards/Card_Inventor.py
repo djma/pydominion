@@ -16,13 +16,9 @@ class Card_Inventor(Card.Card):
         self.cost = 4
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        """Gain a card costing up to 4"""
+        """Gain a card costing up to $4, THEN cards cost $1 less this turn."""
         player.plr_gain_card(4)
-
-    def hook_card_cost(
-        self, game: Game.Game, player: Player.Player, card: Card.Card
-    ) -> int:
-        return -1 if self in player.piles[Piles.PLAYED] else 0
+        player.turn_effects.add_cost_modifier("Inventor", -1)
 
 
 ###############################################################################

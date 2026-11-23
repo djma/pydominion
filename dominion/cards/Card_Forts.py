@@ -12,7 +12,8 @@ class Card_Forts(Card.Card):
         Card.Card.__init__(self)
         self.name = "Forts"
         self.base = Card.CardExpansion.ALLIES
-        self.cardtype = Card.CardType.ACTION
+        self.cardtype = [Card.CardType.ACTION, Card.CardType.FORT]
+        self.cost = 3
 
     def cardpile_setup(self, game: Game.Game):
         return FortCardPile(game)
@@ -21,10 +22,12 @@ class Card_Forts(Card.Card):
 ###############################################################################
 class FortCardPile(CardPile.CardPile):
     def __init__(self, game: Game.Game) -> None:
-        self.mapping = game_setup.get_card_classes("Fort", game_setup.PATHS[Keys.CARDS], "Card_")
+        self.mapping = game_setup.get_card_classes("Fort", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in self.mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards: int = 0, card_class=None) -> None:
         # pylint: disable=import-outside-toplevel

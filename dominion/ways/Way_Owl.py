@@ -17,7 +17,7 @@ class Way_Owl(Way.Way):
         self.name = "Way of the Owl"
 
     def special_way(self, game, player, card):
-        num = 6 - player.piles[Piles.HAND].size() + 1  # for the card that is used
+        num = max(0, 6 - player.piles[Piles.HAND].size())
         player.output(f"Picking up {num} cards from Way of the Owl")
         player.pickup_cards(num=num)
 

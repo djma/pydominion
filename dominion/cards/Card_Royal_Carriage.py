@@ -30,15 +30,18 @@ class Card_RoyalCarriage(Card.Card):
     def hook_call_reserve(self, game: Game.Game, player: Player.Player) -> None:
         """After you play an Action card, if it's still in play,
         you may call this, to replay that Action."""
-        card = player.piles[Piles.PLAYED].top_card()
-        assert card is not None
-        if not card.isAction():
+        track = getattr(player, "_last_played_action_track", None)
+        if track is not None:
+            if not track.is_valid():
+                return
+            card = track.card
+        elif player.played_this_turn:
+            card = player.played_this_turn[-1]
+        else:
             return
-        if not card.location == Piles.PLAYED:
+        if not card.isAction() or card.location != Piles.PLAYED or card not in player.piles[Piles.PLAYED]:
             return
-        if not self.location == Piles.RESERVE:
-            return
-        player.play_card(card, cost_action=False, discard=False)
+        player.play_card(card, cost_action=False, discard=True, move_card=False, throne_card=self)
         return
 
 
@@ -64,14 +67,27 @@ class TestRoyalCarriage(unittest.TestCase):
         """Replay the card"""
         self.plr.add_card(self.card, Piles.HAND)
         self.plr.play_card(self.card)
-        hand_size = self.plr.piles[Piles.HAND].size()
         moat = self.g.get_card_from_pile("Moat")
-        self.plr.add_card(moat, Piles.PLAYED)
+        self.plr.add_card(moat, Piles.HAND)
+        self.plr.play_card(moat, cost_action=False, post_action_hook=False)
+        hand_size = self.plr.piles[Piles.HAND].size()
         self.plr.call_reserve(self.card)
         self.g.print_state()
         self.assertEqual(self.plr.piles[Piles.HAND].size(), hand_size + 2)  # Calling Moat
         self.assertIn("Royal Carriage", self.plr.piles[Piles.PLAYED])
         self.assertIn("Moat", self.plr.piles[Piles.PLAYED])
+
+    def test_triggering_action_left_play(self):
+        self.plr.add_card(self.card, Piles.HAND)
+        self.plr.play_card(self.card)
+        moat = self.g.get_card_from_pile("Moat")
+        self.plr.add_card(moat, Piles.HAND)
+        self.plr.play_card(moat, cost_action=False, post_action_hook=False)
+        self.plr.move_card(moat, Piles.DISCARD)
+        self.plr.piles[Piles.PLAYED].set("Moat")
+        hand_size = len(self.plr.piles[Piles.HAND])
+        self.plr.call_reserve(self.card)
+        self.assertEqual(len(self.plr.piles[Piles.HAND]), hand_size)
 
 
 ###############################################################################

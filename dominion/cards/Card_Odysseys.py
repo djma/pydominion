@@ -12,9 +12,8 @@ class Card_Odysseys(Card.Card):
         Card.Card.__init__(self)
         self.name = "Odysseys"
         self.base = Card.CardExpansion.ALLIES
-        self.cardtype = [Card.CardType.ACTION, Card.CardType.LIAISON]
-        self.required_cards = ["Curse"]
-        self.numcards = 1
+        self.cardtype = [Card.CardType.ACTION, Card.CardType.ODYSSEY]
+        self.cost = 3
 
     @classmethod
     def cardpile_setup(cls, game):
@@ -25,10 +24,12 @@ class Card_Odysseys(Card.Card):
 ###############################################################################
 class OdysseyCardPile(CardPile.CardPile):
     def __init__(self, game):
-        mapping = game_setup.get_card_classes("Odyssey", game_setup.PATHS[Keys.CARDS], "Card_")
+        mapping = game_setup.get_card_classes("Odyssey", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards=0, card_class=None):
         # pylint: disable=import-outside-toplevel

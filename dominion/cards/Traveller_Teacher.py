@@ -19,6 +19,7 @@ class Card_Teacher(Card.Card):
             to an Action Supply pile you have no tokens on"""
         self.name = "Teacher"
         self.purchasable = False
+        self.insupply = False
         self.cost = 6
         self.numcards = 5
 
@@ -46,7 +47,7 @@ class TestTeacher(unittest.TestCase):
 
     def setUp(self) -> None:
         init_cards = [
-            "Page",
+            "Peasant",
             "Cellar",
             "Chapel",
             "Moat",

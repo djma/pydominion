@@ -16,8 +16,8 @@ class Card_Kingscourt(Card.Card):
         self.base = Card.CardExpansion.PROSPERITY
 
     def special(self, game, player):
-        """You may choose an Action card in your hand. Play it three times"""
-        actions = [_ for _ in player.piles[Piles.HAND] if _.isAction()]
+        """You may choose an Action card in your hand (or Shadow in deck). Play it three times."""
+        actions = player.playable_actions()
         if not actions:
             player.output("No action cards to repeat")
             return
@@ -25,11 +25,7 @@ class Card_Kingscourt(Card.Card):
         for card in actions:
             choices.append((f"Play {card} thrice", card))
         if choice := player.plr_choose_options("Play which action card three times?", *choices):
-            player.piles[Piles.HAND].remove(choice)
-            for i in range(1, 4):
-                player.output(f"Number {i} play of {choice}")
-                player.card_benefits(choice)
-            player.add_card(choice, Piles.PLAYED)
+            player.play_card_multiple(choice, times=3, source_card=self)
 
 
 ###############################################################################

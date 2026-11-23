@@ -23,6 +23,8 @@ class Card_Trail(Card.Card):
         self.cost = 4
 
     def hook_gain_this_card(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, str]:
+        if player.phase == Phase.CLEANUP:
+            return {}
         if want_to_play(player):
             player.play_card(self, cost_action=False)
             return {OptionKeys.DESTINATION: Piles.PLAYED}
@@ -36,6 +38,8 @@ class Card_Trail(Card.Card):
                 player.play_card(self, cost_action=False)
 
     def hook_trash_this_card(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, str]:
+        if player.phase == Phase.CLEANUP:
+            return {}
         if want_to_play(player):
             player.play_card(self, cost_action=False)
         return {}
@@ -86,7 +90,8 @@ class TestTrail(unittest.TestCase):
         self.plr.trash_card(self.card)
         self.assertEqual(self.plr.actions.get(), actions + 1)
         self.assertEqual(len(self.plr.piles[Piles.HAND]), hand_size + 1)
-        self.assertIn("Trail", self.g.trash_pile)
+        self.assertIn("Trail", self.plr.piles[Piles.PLAYED])
+        self.assertNotIn("Trail", self.g.trash_pile)
 
     def test_discard_card(self) -> None:
         """Discard self"""
@@ -98,6 +103,15 @@ class TestTrail(unittest.TestCase):
         self.assertEqual(self.plr.actions.get(), actions + 1)
         self.assertEqual(len(self.plr.piles[Piles.HAND]), hand_size + 1)
         self.assertIn("Trail", self.plr.piles[Piles.PLAYED])
+
+    def test_cleanup_gain_and_trash_do_not_react(self):
+        from unittest.mock import patch
+
+        self.plr.phase = Phase.CLEANUP
+        with patch.object(self.plr, "plr_choose_options", side_effect=AssertionError("Cleanup reaction")):
+            self.plr.gain_card("Trail")
+            self.plr.trash_card(self.card)
+        self.assertIn(self.card, self.g.trash_pile)
 
 
 ###############################################################################

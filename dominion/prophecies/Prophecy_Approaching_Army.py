@@ -2,6 +2,7 @@
 
 import random
 import unittest
+from unittest.mock import patch
 
 from dominion import Card, Game, Prophecy, Player, OptionKeys, Piles, game_setup, Keys
 
@@ -24,6 +25,8 @@ class Prophecy_Approaching_Army(Prophecy.Prophecy):
 
     def setup(self, game: Game.Game) -> None:
         """Setup: Add an extra Attack Kingdom card to the Supply."""
+        if ARMY_ATTACK in game.specials:
+            return
         attacks = []
         for klass in game.card_mapping["Card"].values():
             card = klass()
@@ -32,7 +35,7 @@ class Prophecy_Approaching_Army(Prophecy.Prophecy):
                 continue
             if not card.insupply or not card.purchasable:
                 continue
-            if card.name in game_setup.INIT_CARDS[Keys.BAD_CARDS]:
+            if card.name in game.config.init_cards[Keys.BAD_CARDS]:
                 continue
             if not card.isAttack():
                 continue
@@ -41,7 +44,6 @@ class Prophecy_Approaching_Army(Prophecy.Prophecy):
         game.specials[ARMY_ATTACK] = attack
         game_setup.use_card_pile(game, game.get_available_cards(), game.specials[ARMY_ATTACK])
         game_setup.check_card_requirement(game, game.card_instances[attack])
-        game.card_piles[attack].setup(game=game)
         if game.hexes or game.boons:
             game_setup.load_states(game)
         game.output(f"Using {attack} as the attack card for Approaching Army")
@@ -54,6 +56,19 @@ class Test_Approaching_Army(unittest.TestCase):
         self.g.start_game()
         self.plr, self.victim = self.g.player_list()
         self.g.reveal_prophecy()
+
+    def test_young_witch_extra_pile(self) -> None:
+        """Young Witch must add exactly one Bane pile."""
+        game = Game.TestGame(num_stacks=1, initcards=["Mountain Shrine"], prophecies=["Approaching Army"])
+
+        def choose(cards):
+            return next((name for name in ("Young Witch", "Moat", "Village") if name in cards), cards[0])
+
+        with patch("random.choice", side_effect=choose):
+            game.start_game()
+        self.assertEqual(game.kingdom_piles, ["Mountain Shrine", "Young Witch", "Moat"])
+        self.assertEqual(game.specials["young witch bane"], "Moat")
+        self.assertTrue(set(game.card_piles).issubset(game.specials["_setup_done"]))
 
     def test_play(self) -> None:
         """Play when prophecy active"""

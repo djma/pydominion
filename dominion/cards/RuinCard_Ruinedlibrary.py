@@ -13,7 +13,7 @@ class Card_RuinedLibrary(Card.Card):
         self.cardtype = [Card.CardType.ACTION, Card.CardType.RUIN]
         self.base = Card.CardExpansion.DARKAGES
         self.desc = "+1 Card"
-        self.purchasable = False
+        self.purchasable = True
         self.cost = 0
         self.name = "Ruined Library"
         self.cards = 1
