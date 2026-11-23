@@ -20,12 +20,9 @@ class Card_Bridge(Card.Card):
         self.coin = 1
         self.cost = 4
 
-    def hook_card_cost(self, game, player, card):
-        """All cards (including cards in players' hands) cost 1
-        less this turn, but not less than 0"""
-        if self in player.piles[Piles.PLAYED]:
-            return -1
-        return 0
+    def special(self, game, player):
+        """All cards (including cards in players' hands) cost $1 less this turn."""
+        player.turn_effects.add_cost_modifier("Bridge", -1)
 
 
 ###############################################################################

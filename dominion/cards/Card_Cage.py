@@ -27,28 +27,30 @@ class Card_Cage(Card.Card):
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         """Set aside up to 4 cards from your hand face down"""
-        if CAGE not in player.specials:
-            player.specials[CAGE] = PlayArea.PlayArea(initial=[])
+        area = player.get_set_aside_area(CAGE)
+        player.specials[CAGE] = area
         player.output("Set aside up to 4 cards on Cage")
         for _ in range(4):
-            if not self._set_aside(player):
+            if not self._set_aside(player, area):
                 break
 
-    def _set_aside(self, player: Player.Player) -> bool:
+    def _set_aside(self, player: Player.Player, area: PlayArea.PlayArea) -> bool:
         card = player.plr_pick_card()
         if not card:
             return False
         player.output(f"Adding {card} to the {self}")
-        player.piles[Piles.HAND].remove(card)
-        player.specials[CAGE].add(card)
-        player.secret_count += 1
+        player.remove_card(card)
+        area.add(card)
+        card.location = Piles.SPECIAL
         return True
 
     def hook_gain_card(self, game: "Game.Game", player: "Player.Player", card: "Card.Card") -> dict[OptionKeys, Any]:
         """The next time you gain a Victory card, trash this"""
+        if self.location not in (Piles.PLAYED, Piles.DURATION):
+            return {}
         if not card.isVictory():
             return {}
-        if CAGE not in player.specials:
+        if CAGE not in player.set_aside:
             return {}
         self._active = True
         return {}
@@ -57,11 +59,11 @@ class Card_Cage(Card.Card):
         """and put the set aside cards into your hand at end of turn."""
         if not self._active:
             return
-        for card in player.specials[CAGE]:
+        area = player.get_set_aside_area(CAGE)
+        for card in list(area):
             player.output(f"Pulling {card} out of {self}")
+            area.remove(card)
             player.add_card(card, Piles.HAND)
-            player.secret_count -= 1
-        player.specials[CAGE] = PlayArea.PlayArea(initial=[])
         # We have to trash here rather than the gain card hook otherwise this card won't be considered for running hooks
         player.trash_card(self)
         self._active = False

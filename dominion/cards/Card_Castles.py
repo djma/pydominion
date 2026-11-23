@@ -13,6 +13,8 @@ class Card_Castles(Card.Card):
         Card.Card.__init__(self)
         self.name = "Castles"
         self.base = Card.CardExpansion.EMPIRES
+        self.cardtype = [Card.CardType.VICTORY, Card.CardType.CASTLE]
+        self.cost = 3
 
     @classmethod
     def cardpile_setup(cls, game):
@@ -23,16 +25,26 @@ class Card_Castles(Card.Card):
 
 ###############################################################################
 class CastleCardPile(CardPile.CardPile):
-    """Pile of Castles"""
+    """Pile of Castles (8 in 2p, 12 in 3+p per Complete Rules Ch. I p. 9)."""
+
+    DOUBLE_IN_3P = {"Humble Castle", "Small Castle", "Opulent Castle", "King's Castle"}
 
     def __init__(self, game):
-        self.mapping = game_setup.get_card_classes("Castle", game_setup.PATHS[Keys.CARDS], "Card_")
+        self.mapping = game_setup.get_card_classes("Castle", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in self.mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards=0, card_class=None):
-        self.cards = sorted([_() for _ in self.mapping.values()], key=lambda x: x.cost, reverse=True)
+        cards = []
+        three_plus = self.game is not None and self.game.numplayers >= 3
+        for name, klass in self.mapping.items():
+            copies = 2 if (three_plus and name in self.DOUBLE_IN_3P) else 1
+            for _ in range(copies):
+                cards.append(klass())
+        self.cards = sorted(cards, key=lambda x: x.cost, reverse=True)
 
 
 ###############################################################################

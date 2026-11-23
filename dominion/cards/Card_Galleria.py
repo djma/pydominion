@@ -41,7 +41,8 @@ class TestGalleria(unittest.TestCase):
         self.assertEqual(self.plr.coins.get(), coins + 3)
 
     def test_gain(self) -> None:
-        """Gain a card"""
+        """Gain a card after playing Galleria"""
+        self.plr.play_card(self.card)
         buys = self.plr.buys.get()
         self.plr.gain_card("Silver")
         self.assertEqual(self.plr.buys.get(), buys + 1)

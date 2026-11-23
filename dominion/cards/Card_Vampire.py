@@ -21,9 +21,10 @@ class Card_Vampire(Card.Card):
         self.required_cards = [("Card", "Bat")]
 
     def night(self, game: "Game.Game", player: "Player.Player") -> None:
-        for pl in player.attack_victims():
+        victims = player.attack_victims()
+        for pl in victims:
             pl.output(f"{player}'s Vampire hexed you")
-            pl.receive_hex()
+        game.distribute_hex(player, victims)
         player.plr_gain_card(5, exclude=["Vampire"])
         player.replace_card(self, "Bat")
 

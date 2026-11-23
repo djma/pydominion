@@ -19,14 +19,15 @@ class Card_Tormentor(Card.Card):
         self.cost = 5
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        if player.piles[Piles.PLAYED].size() == 1:  # Include this card
+        if len(player.in_play_cards()) == 1:  # Include this card
             player.gain_card("Imp")
             player.output("Gained an Imp")
         else:
-            for pl in player.attack_victims():
+            victims = player.attack_victims()
+            for pl in victims:
                 player.output(f"Hexed {pl.name}")
                 pl.output(f"Received a hex from {player.name}'s Tormentor")
-                pl.receive_hex()
+            game.distribute_hex(player, victims)
 
 
 ###############################################################################

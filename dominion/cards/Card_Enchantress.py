@@ -34,7 +34,10 @@ class Card_Enchantress(Card.Card):
         owner: Player.Player,
         card: Card.Card,
     ) -> dict[OptionKeys, Any]:
-        if len(player.piles[Piles.PLAYED]) == 0 and card.isAction():
+        if player == owner or not card.isAction():
+            return {}
+        other_actions = [c for c in player.played_this_turn if c is not card and c.isAction()]
+        if not other_actions:
             player.output(f"{owner.name}'s Enchantress gazump'd your {card}")
             player.add_actions(1)
             with contextlib.suppress(NoCardException):

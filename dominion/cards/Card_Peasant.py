@@ -25,6 +25,8 @@ class Card_Peasant(Card.Card):
         self, game: "Game.Game", player: "Player.Player", source: Optional[Union[Piles, "PlayArea.PlayArea"]]
     ) -> None:
         """Replace with Treasure Hunter"""
+        if source != Piles.PLAYED and source is not player.piles[Piles.PLAYED]:
+            return
         player.replace_traveller(self, "Soldier")
 
 
@@ -45,6 +47,17 @@ class TestPeasant(unittest.TestCase):
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.buys.get(), 2)
         self.assertEqual(self.plr.coins.get(), 1)
+
+    def test_exchange_only_from_play(self):
+        from unittest.mock import patch
+
+        with patch.object(self.plr, "replace_traveller") as exchange:
+            for source in (Piles.HAND, Piles.EXILE, self.plr.piles[Piles.HAND], self.plr.piles[Piles.EXILE]):
+                self.card.hook_discard_this_card(self.g, self.plr, source)
+            exchange.assert_not_called()
+            for source in (Piles.PLAYED, self.plr.piles[Piles.PLAYED]):
+                self.card.hook_discard_this_card(self.g, self.plr, source)
+            self.assertEqual(exchange.call_count, 2)
 
 
 ###############################################################################

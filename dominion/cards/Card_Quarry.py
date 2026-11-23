@@ -16,10 +16,8 @@ class Card_Quarry(Card.Card):
         self.coin = 1
         self.cost = 4
 
-    def hook_card_cost(self, game, player, card):
-        if self in player.piles[Piles.PLAYED] and card.isAction():
-            return -2
-        return 0
+    def special(self, game, player):
+        player.turn_effects.add_cost_modifier("Quarry", -2, card_filter="action")
 
 
 ###############################################################################

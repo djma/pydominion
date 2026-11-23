@@ -18,16 +18,16 @@ class Ally_Island_Folk(Ally.Ally):
     def hook_end_turn(self, game: "Game.Game", player: "Player.Player") -> None:
         if player.favors.get() < 5:
             return
-        if game.last_turn(player):
+        if game.last_turn(player) or not game.turn_queue.can_take_extra_turn(player.uuid):
             return
         if player.plr_choose_options(
             "Spend 5 favors to take an extra turn? ",
             ("Do nothing", False),
-            (f"Spend 5 favors)", True),
+            ("Spend 5 favors)", True),
         ):
             player.output("Having an extra turn")
             player.favors.add(-5)
-            game.current_player = game.playerToRight(player)
+            game.schedule_extra_turn(player, source="Island Folk")
 
 
 ###############################################################################

@@ -16,6 +16,9 @@ class Card_Ruins(Card.Card):
         self.name = "Ruins"
         self.pile = "Ruins"
         self.base = Card.CardExpansion.DARKAGES
+        self.cardtype = [Card.CardType.ACTION, Card.CardType.RUIN]
+        self.cost = 0
+        self.is_kingdom = False
 
     @classmethod
     def cardpile_setup(cls, game):
@@ -36,9 +39,11 @@ class RuinCardPile(CardPile.CardPile):
     """Ruin Card Pile"""
 
     def __init__(self, game):
-        self.mapping = game_setup.get_card_classes("RuinCard", game_setup.PATHS[Keys.CARDS], "Card_")
+        self.mapping = game_setup.get_card_classes("RuinCard", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in self.mapping.items():
-            game.card_instances[name] = class_()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
         super().__init__(game=game)
 
     def init_cards(self, num_cards=0, card_class=None):

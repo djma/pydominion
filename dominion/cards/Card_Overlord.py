@@ -14,13 +14,13 @@ class Card_Overlord(Card.Card):
         Card.Card.__init__(self)
         self.cardtype = [Card.CardType.ACTION, Card.CardType.COMMAND]
         self.base = Card.CardExpansion.EMPIRES
-        self.desc = "Play a non-Command Action card from the Supply costing up to $5, leaving it there."
+        self.desc = "Play a non-Duration, non-Command Action card from the Supply costing up to $5, leaving it there."
         self.name = "Overlord"
         self.cost = 0
         self.debtcost = 8
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        cards = [_ for _ in player.cards_under(5) if _.isAction() and not _.isCommand()]
+        cards = [_ for _ in player.cards_under(5) if _.isAction() and not _.isCommand() and not _.isDuration()]
         if opts := [(f"Play {_}", _) for _ in cards]:
             choice = player.plr_choose_options("Play which action card from supply?", *opts)
             player.play_card(choice, discard=False, cost_action=False)
@@ -46,6 +46,16 @@ class TestOverlord(unittest.TestCase):
         self.assertEqual(self.plr.piles[Piles.HAND].size(), hand + 2)
         self.assertNotIn("Moat", self.plr.piles[Piles.PLAYED])
         self.assertEqual(len(self.g.card_piles["Moat"]), 10)
+
+    def test_excludes_duration_cards(self):
+        from unittest.mock import patch
+
+        duration = self.g.card_piles["Moat"].get_top_card()
+        duration.cardtype = [Card.CardType.ACTION, Card.CardType.DURATION]
+        with patch.object(self.plr, "cards_under", return_value=[duration]), patch.object(
+            self.plr, "plr_choose_options", side_effect=AssertionError("Duration offered")
+        ):
+            self.card.special(self.g, self.plr)
 
 
 ###############################################################################

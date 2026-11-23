@@ -16,7 +16,11 @@ class Card_Scepter(Card.Card):
         self.cost = 5
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        acts = [_ for _ in player.piles[Piles.PLAYED] if _.isAction() and not _.isCommand()]
+        acts = [
+            c
+            for c in player.played_this_turn
+            if c.location == Piles.PLAYED and c in player.piles[Piles.PLAYED] and c.isAction() and not c.isCommand()
+        ]
         if acts:
             get_coin = player.plr_choose_options("Choose one? ", ("2 Coin", True), ("Replay an action card", False))
         else:
@@ -25,10 +29,8 @@ class Card_Scepter(Card.Card):
         if get_coin:
             player.coins.add(2)
         else:
-            card = player.card_sel(cardsrc=acts)
-            player.add_card(card[0], Piles.HAND)
-            player.piles[Piles.PLAYED].remove(card[0])
-            player.play_card(card[0], cost_action=False)
+            if cards := player.card_sel(cardsrc=acts):
+                player.play_card(cards[0], cost_action=False, move_card=False, throne_card=self)
 
 
 ###############################################################################
@@ -47,10 +49,17 @@ class Test_Scepter(unittest.TestCase):
 
     def test_play_replay(self) -> None:
         self.plr.piles[Piles.PLAYED].set("Moat")
+        self.plr.played_this_turn.append(self.plr.piles[Piles.PLAYED]["Moat"])
         self.plr.test_input = ["Replay", "Moat"]
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.coins.get(), 0)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 5 + 2)
+
+    def test_previous_turn_action_is_not_eligible(self):
+        self.plr.piles[Piles.PLAYED].set("Moat")
+        self.plr.play_card(self.card)
+        self.assertEqual(self.plr.coins.get(), 2)
+        self.assertEqual(len(self.plr.piles[Piles.HAND]), 5)
 
 
 ###############################################################################

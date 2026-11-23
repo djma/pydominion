@@ -13,7 +13,7 @@ class Card_RuinedVillage(Card.Card):
         self.cardtype = [Card.CardType.ACTION, Card.CardType.RUIN]
         self.base = Card.CardExpansion.DARKAGES
         self.name = "Ruined Village"
-        self.purchasable = False
+        self.purchasable = True
         self.cost = 0
         self.desc = "+1 Action"
         self.actions = 1

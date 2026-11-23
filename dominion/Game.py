@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Dominion Game Code"""
+"""Dominion Game Engine Core."""
+
+from __future__ import annotations
 
 import json
 import random
 import sys
-from typing import Optional, Any
-from uuid import UUID
+from typing import Any, Optional
 
 from dominion import NoCardException, Piles
 from dominion import game_setup
 from dominion.Artifact import Artifact
 from dominion.Boon import Boon
-from dominion.Card import Card
+from dominion.Card import Card, CardType
 from dominion.CardPile import CardPile
 from dominion.Event import Event
+from dominion.GameConfig import GameConfig
 from dominion.Hex import Hex
 from dominion.Landmark import Landmark
 from dominion.PlayArea import PlayArea
@@ -22,19 +24,20 @@ from dominion.Project import Project
 from dominion.Prophecy import Prophecy
 from dominion.State import State
 from dominion.Trait import Trait
+from dominion.TurnQueue import TurnEntry, TurnQueue
 from dominion.Way import Way
 
 
 ###############################################################################
-###############################################################################
-###############################################################################
 class Game:
-    """Game class"""
+    """Game class — owns global rules state, piles, turn scheduler, and game end."""
 
     def __init__(self, **kwargs: Any) -> None:
+        self.rng = random.Random(random.getrandbits(64))
         self.players: dict[str, Player] = {}
-        self.cards: dict[UUID, Card] = {}
+        self.cards: dict[str, Card] = {}
         self.card_piles: dict[str, CardPile] = {}
+        self.kingdom_piles: list[str] = []
         self.states: dict[str, State] = {}
         self.artifacts: dict[str, Artifact] = {}
         self.projects: dict[str, Project] = {}
@@ -47,6 +50,7 @@ class Game:
         self.retained_boons: list[Boon] = []
         self.hexes: list[Hex] = []
         self._turns: list[str] = []
+        self.turn_queue: TurnQueue = TurnQueue()
         self.ally: Optional[Card] = None
         self.discarded_hexes: list[Hex] = []
         self.trash_pile = PlayArea("trash", game=self)
@@ -54,20 +58,25 @@ class Game:
         self.prophecy: Optional[Prophecy] = None
         self.game_over = False
         self.quiet = False
+        self.use_shelters = False
         self.heirlooms: list[str] = []
         self.current_player: Optional[Player] = None
         self.sun_tokens: int = 0
         self.numplayers = 0
         self.specials: dict[str, Any] = {}  # Special areas for specific card related stuff
+
+        self.config: GameConfig = GameConfig.from_kwargs(**kwargs)
+        self.quiet = bool(kwargs.get("quiet", False))
+        self.numplayers = int(kwargs.get("numplayers", 2))
         game_setup.parse_args(self, **kwargs)
 
-        self.card_mapping = game_setup.get_available_card_classes()
+        self.card_mapping = game_setup.get_available_card_classes(self.config)
         self._original: dict[str, Any] = {}
         self.card_instances: dict[str, Card] = {}
 
     ###########################################################################
     def start_game(self, player_names: Optional[list[str]] = None) -> None:
-        """Start the game - pass everything though to game_setup"""
+        """Start the game - pass everything through to game_setup"""
         game_setup.start_game(self, player_names)
         self._save_original()
 
@@ -91,6 +100,8 @@ class Game:
         """Prophecy has been enacted - make it active"""
         if self.prophecy is not None:
             return
+        if self.inactive_prophecy is None:
+            return
         self.output(f"Prophecy {self.inactive_prophecy.name} is now active")
         self.prophecy = self.inactive_prophecy
         assert self.prophecy is not None
@@ -98,8 +109,21 @@ class Game:
 
     ###########################################################################
     def player_list(self) -> list[Player]:
-        """List of players"""
+        """List of players in seating order"""
         return list(self.players.values())
+
+    ###########################################################################
+    def players_in_turn_order(self, start_player: Optional[Player] = None) -> list[Player]:
+        """Return players in clockwise turn order starting with `start_player` (or current_player)."""
+        players = self.player_list()
+        if not players:
+            return []
+        anchor = start_player or self.current_player or players[0]
+        if self.turn_queue.player_order and anchor.uuid in self.turn_queue.player_order:
+            uuids = self.turn_queue.turn_order_from(anchor.uuid)
+            return [self.players[u] for u in uuids if u in self.players]
+        idx = players.index(anchor)
+        return players[idx:] + players[:idx]
 
     ###########################################################################
     def count_cards(self) -> int:
@@ -109,8 +133,7 @@ class Game:
             count[f"pile_{name}"] = len(pile)
         for plr in self.player_list():
             count[f"player_{plr.name}"] = plr.count_cards()
-        total = sum(count.values())
-        return total
+        return sum(count.values())
 
     ###########################################################################
     def output(self, msg: str) -> None:
@@ -130,129 +153,179 @@ class Game:
         return list(self.card_mapping["PrizeCard"].keys())
 
     ###########################################################################
-    def get_card_from_pile(self, pile: str, name: str = "") -> Card:
-        """Get and return a card from pile (with name if specified)"""
+    def get_card_from_pile(self, pile: str, name: str = "", top_only: bool = False) -> Card:
+        """Get and return a card from pile (with name if specified)."""
         assert isinstance(pile, str), f"{pile=} {type(pile)=}"
         assert pile in self.card_piles, f"{pile=} not in {self.card_piles=}"
-        num_cards = len(self.card_piles[pile])
-        card = self.card_piles[pile].remove(name)
+        card_pile = self.card_piles[pile]
+        num_cards = len(card_pile)
+        card = card_pile.remove(name, top_only=top_only)
         if card is None:
             raise NoCardException
-        new_num_cards = len(self.card_piles[pile])
-        if num_cards > 0 and new_num_cards == 0:
+        card.game = self
+        new_num_cards = len(card_pile)
+        if num_cards > 0 and new_num_cards == 0 and card_pile.in_supply:
             self.emptied_pile(card)
         card.location = Piles.LIMBO
         return card
 
     ###########################################################################
     def emptied_pile(self, card: Card) -> None:
-        """A Card pile has been emptied"""
-        for player in self.players.values():
-            for hook_card in player.relevant_cards():
+        """A Supply card pile has been emptied (triggers Search, etc.)."""
+        for player in self.players_in_turn_order():
+            for hook_card in player.in_play_and_landscape_cards():
                 hook_card.hook_emptied_pile(self, player, card)
 
     ###########################################################################
+    def get_supply_piles(self) -> list[tuple[str, CardPile]]:
+        """Return ONLY Supply piles (excludes Loot, Shelters, Travellers, Heirlooms, Spoils, Prizes, etc.)."""
+        return [(key, pile) for key, pile in self.card_piles.items() if pile.in_supply]
+
+    ###########################################################################
     def get_card_piles(self) -> list[tuple[str, CardPile]]:
-        """Return the card piles in this game
-        While Loot is technically a Pile - it isn't for most purposes
-        """
-        piles = list(self.card_piles.items())
-        return [(key, value) for key, value in piles if key not in ("Loot", "Shelters")]
+        """Return the Supply card piles in this game."""
+        return self.get_supply_piles()
+
+    ###########################################################################
+    def get_all_piles(self) -> list[tuple[str, CardPile]]:
+        """Return all card piles in this game (both Supply and non-Supply)."""
+        return list(self.card_piles.items())
 
     ###########################################################################
     def get_available_cards(self, prefix: str = "Card") -> list[str]:
-        """return a list of all available cards"""
+        """Return a list of all available cards"""
         return list(self.card_mapping[prefix].keys())
 
     ###########################################################################
+    def _pile_types(self, name: str, pile: CardPile) -> list[CardType]:
+        """Return the pile's types per Split Pile Randomizer rules (Ch. IV p. 36)."""
+        if pile.randomizer_types:
+            return list(pile.randomizer_types)
+        if name in self.card_instances:
+            return self.card_instances[name].get_raw_card_type()
+        if not pile.is_empty():
+            return pile.get_top_card().get_raw_card_type()
+        return []
+
+    ###########################################################################
+    def _pile_cost(self, name: str, pile: CardPile) -> int:
+        """Return the pile's printed coin cost per Split Pile Randomizer rules."""
+        if pile.randomizer_cost is not None:
+            return pile.randomizer_cost.coins
+        if name in self.card_instances and self.card_instances[name].cost >= 0:
+            return self.card_instances[name].cost
+        if not pile.is_empty():
+            return pile.get_top_card().cost
+        return 0
+
+    ###########################################################################
     def get_action_piles(self, cost: int = 999) -> list[str]:
-        """Return all card stacks that are action cards that cost less than cost"""
+        """Return all Supply card stacks that are Action piles costing <= `cost` (per Randomizer rules)."""
         action_piles = []
-        for name, pile in self.card_piles.items():
-            try:
-                card = pile.get_top_card()
-            except NoCardException:  # pragma: no coverage
+        for name, pile in self.get_supply_piles():
+            types = self._pile_types(name, pile)
+            if CardType.ACTION not in types:
                 continue
-            if not card.purchasable:
+            pile_cost = self._pile_cost(name, pile)
+            if pile_cost > cost:
                 continue
-            if card.cost > cost:
-                continue
-            if card.isAction():
-                action_piles.append(name)
+            action_piles.append(name)
         return action_piles
 
     ###########################################################################
     def get_treasure_piles(self) -> list[str]:
-        """Return all card stacks that are treasure cards"""
+        """Return all Supply card stacks that are Treasure piles."""
         treasure_piles = []
-        for name, _ in self.get_card_piles():
-            card = self.card_instances[name]
-            if card.isTreasure():
+        for name, pile in self.get_supply_piles():
+            top_card = pile.get_top_card() if not pile.is_empty() else None
+            instance = self.card_instances.get(name)
+            if (
+                CardType.TREASURE in self._pile_types(name, pile)
+                or (top_card is not None and top_card.isTreasure())
+                or (instance is not None and instance.isTreasure())
+            ):
                 treasure_piles.append(name)
         return treasure_piles
 
     ###########################################################################
     def get_victory_piles(self) -> list[str]:
-        """Return all card stack names that are victory cards"""
+        """Return all Supply card stacks that are Victory piles."""
         victory_piles = []
-        for name, _ in self.get_card_piles():
-            if name in ("Shelters",):
-                continue
-            card = self.card_instances[name]
-            if card.isVictory():
+        for name, pile in self.get_supply_piles():
+            if CardType.VICTORY in self._pile_types(name, pile):
                 victory_piles.append(name)
         return victory_piles
 
     ###########################################################################
+    def empty_supply_piles(self) -> list[str]:
+        """Return names of all currently empty Supply piles."""
+        return [name for name, pile in self.get_supply_piles() if pile.is_empty()]
+
+    ###########################################################################
     def isGameOver(self) -> bool:
-        """is the game over:
-        3 piles are empty
-        or the Colony pile is in use and empty
-        or if the Colony pile isn't in use - then the Province pile is empty"""
-        empties = []
-        for pile_name, pile in self.card_piles.items():
-            if pile.is_empty():
-                empties.append(pile_name)
-        if len(empties) >= 3:
+        """Check Dominion game-end conditions (Complete Rules Ch. II p. 15):
+        - Province pile is empty
+        - OR Colony pile is in the game and empty
+        - OR 3 Supply piles are empty (4 Supply piles for 5–6 players)
+        Non-Supply piles NEVER count toward empty piles.
+        """
+        empties = self.empty_supply_piles()
+        threshold = 4 if self.numplayers >= 5 else 3
+        if len(empties) >= threshold:
             self.output(f"Game Over: {', '.join(empties)} piles are empty")
             return True
-        if "Colony" in self.card_piles:
-            if self.card_piles["Colony"].is_empty():
-                self.output("Game Over: Colony pile is empty")
-                return True
-        elif self.card_piles["Province"].is_empty():
+        if "Colony" in self.card_piles and self.card_piles["Colony"].is_empty():
+            self.output("Game Over: Colony pile is empty")
+            return True
+        if "Province" in self.card_piles and self.card_piles["Province"].is_empty():
             self.output("Game Over: Province pile is empty")
             return True
         return False
 
     ###########################################################################
     def receive_hex(self) -> Optional[Hex]:
-        """Receive a hex"""
+        """Draw the top Hex card from the Hex deck (shuffling discarded hexes if empty)."""
         if not self.hexes:
             self.cleanup_hexes()
-        hx = self.hexes.pop()
-        return hx
+        if not self.hexes:
+            return None
+        return self.hexes.pop()
 
     ###########################################################################
     def cleanup_hexes(self) -> None:
-        """TODO"""
+        """Reshuffle discarded hexes into a new Hex deck when empty."""
         for hx in self.discarded_hexes[:]:
             self.hexes.append(hx)
-        random.shuffle(self.hexes)
+        self.rng.shuffle(self.hexes)
         self.discarded_hexes = []
 
     ###########################################################################
     def discard_hex(self, hx: Hex) -> None:
-        """Return a hex"""
+        """Discard a Hex card to the Hex discard pile."""
         self.discarded_hexes.append(hx)
 
     ###########################################################################
+    def distribute_hex(self, attacker: Player, victims: list[Player]) -> Optional[Hex]:
+        """Complete Rules Ch. IV (Boons and Hexes p. 35):
+        Take ONE top Hex card (even if all opponents blocked), each unblocked victim
+        receives that same Hex in turn order, then discard the Hex once.
+        """
+        hx = self.receive_hex()
+        if hx is None:
+            return None
+        ordered_victims = [p for p in self.players_in_turn_order(attacker) if p in victims]
+        for victim in ordered_victims:
+            victim.receive_hex(hx=hx, discard=False)
+        self.discard_hex(hx)
+        return hx
+
+    ###########################################################################
     def receive_boon(self) -> Optional[Boon]:
-        """Receive a boon"""
+        """Draw the top Boon card (shuffling discarded boons ONLY when Boon deck is empty)."""
         if not self.boons:
             self.boons = self.discarded_boons[:]
             self.discarded_boons = []
-            random.shuffle(self.boons)
+            self.rng.shuffle(self.boons)
         try:
             boon = self.boons.pop()
         except IndexError:
@@ -261,18 +334,18 @@ class Game:
 
     ###########################################################################
     def cleanup_boons(self) -> None:
-        """TODO"""
+        """Discard any Boons kept until Clean-up to the Boon discard pile.
+
+        Per Complete Rules Ch. IV p. 35, the Boon discard pile is NOT reshuffled
+        into the Boon deck until a Boon is needed and the deck is empty.
+        """
         for boon in self.retained_boons[:]:
             self.discarded_boons.append(boon)
         self.retained_boons = []
-        for boon in self.discarded_boons[:]:
-            self.boons.append(boon)
-        random.shuffle(self.boons)
-        self.discarded_boons = []
 
     ###########################################################################
     def discard_boon(self, boon: Boon) -> None:
-        """Return a boon"""
+        """Discard a Boon (or retain it until Clean-up if `boon.retain_boon`)."""
         if boon.retain_boon:
             self.retained_boons.append(boon)
         else:
@@ -297,7 +370,8 @@ class Game:
                 if tkns:
                     tokens += f"{plr.name}[{','.join(tkns)}]"
             trait = f"Trait: {card_pile.trait}" if card_pile.trait else ""
-            print(f"CardPile {name}: {len(card_pile)} cards {tokens} {trait}")
+            supply_tag = "" if card_pile.in_supply else " [non-supply]"
+            print(f"CardPile {name}: {len(card_pile)} cards {tokens} {trait}{supply_tag}")
         print(f"Instances: {', '.join(self.card_instances)}")
 
         for plr in self.player_list():
@@ -309,27 +383,50 @@ class Game:
 
     ###########################################################################
     def player_to_left(self, plr: Player) -> Player:
-        """Return the player to the 'left' of the one specified"""
-        players = self.player_list()
-        place = players.index(plr) - 1
-        return players[place]
-
-    ###########################################################################
-    def playerToRight(self, plr: Player) -> Player:
-        """Return the player to the 'right' of the one specified"""
+        """Return the player to the 'left' of `plr` (next in clockwise turn order)."""
+        if self.turn_queue.player_order and plr.uuid in self.turn_queue.player_order:
+            return self.players[self.turn_queue.left_uuid(plr.uuid)]
         players = self.player_list()
         place = (players.index(plr) + 1) % len(players)
         return players[place]
 
     ###########################################################################
+    def playerToRight(self, plr: Player) -> Player:
+        """Return the player to the 'right' of `plr` (previous in clockwise turn order)."""
+        if self.turn_queue.player_order and plr.uuid in self.turn_queue.player_order:
+            return self.players[self.turn_queue.right_uuid(plr.uuid)]
+        players = self.player_list()
+        place = (players.index(plr) - 1) % len(players)
+        return players[place]
+
+    player_to_right = playerToRight
+
+    ###########################################################################
+    def determine_winners(self) -> list[Player]:
+        """Return the winning player(s) per Complete Rules Ch. II (Game end p. 15):
+        Highest VP wins; ties broken by fewest regular turns (excluding extra/Fleet turns);
+        still tied players share the victory.
+        """
+        players = self.player_list()
+        if not players:
+            return []
+        scored = [(plr.get_score(), -plr.turn_number, plr) for plr in players]
+        best_key = max((vp, neg_turns) for vp, neg_turns, _ in scored)
+        return [plr for vp, neg_turns, plr in scored if (vp, neg_turns) == best_key]
+
+    ###########################################################################
     def whoWon(self) -> dict[str, int]:
-        """TODO"""
+        """Compute, display, and return final scores (and announce winner(s) with tie-breaker)."""
         scores: dict[str, int] = {}
         self.output("")
         self.output("Scores:")
         for plr in self.player_list():
             scores[plr.name] = plr.get_score(verbose=True)
         self.output(json.dumps(scores, indent=2))
+        winners = self.determine_winners()
+        if winners:
+            winner_names = ", ".join(p.name for p in winners)
+            self.output(f"Winner(s): {winner_names}")
         self.output("")
         for plr in self.player_list():
             self.output(f"Cards of {plr.name}:")
@@ -339,11 +436,29 @@ class Game:
 
     ###########################################################################
     def last_turn(self, plr: Player) -> bool:
-        """Who had the last turn"""
+        """True if `plr` took the most recently completed turn."""
+        if self.turn_queue.history:
+            return self.turn_queue.history[-1].player_uuid == plr.uuid
         try:
             return self._turns[-1] == plr.uuid
         except IndexError:
             return False
+
+    ###########################################################################
+    def schedule_extra_turn(
+        self,
+        plr: Player,
+        source: str = "",
+        modifiers: Optional[dict[str, Any]] = None,
+        enforce_consecutive_cap: bool = True,
+    ) -> bool:
+        """Schedule an extra turn for `plr` via TurnQueue (enforcing 2023 max-2-in-a-row rule)."""
+        return self.turn_queue.schedule_extra_turn(
+            plr.uuid,
+            source=source,
+            modifiers=modifiers,
+            enforce_consecutive_cap=enforce_consecutive_cap,
+        )
 
     ###########################################################################
     def _count_all_cards(self) -> dict[str, dict[str, int]]:  # pragma: no cover
@@ -358,7 +473,11 @@ class Game:
                     if count := sum(1 for card in stack if card.pile == pile_name):
                         tmp[pile_name][f"{plr.name}:{stack_name}"] = count
                         total += count
-            if count := sum(1 for card in self.trash_pile if card.name == pile_name):
+                for mat_name, mat in plr.set_aside.items():
+                    if count := sum(1 for card in mat if card.pile == pile_name):
+                        tmp[pile_name][f"{plr.name}:set_aside:{mat_name}"] = count
+                        total += count
+            if count := sum(1 for card in self.trash_pile if card.pile == pile_name or card.name == pile_name):
                 tmp[pile_name]["trash"] = count
                 total += count
             tmp[pile_name]["total"] = total
@@ -374,7 +493,7 @@ class Game:
             file=sys.stderr,
         )
         for name in self.card_piles:
-            if self._original["count"][name]["total"] == now[name]["total"]:
+            if name in self._original["count"] and self._original["count"][name]["total"] == now[name]["total"]:
                 continue
             print(f"{name} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<", file=sys.stderr)
             print(f" {name} Original:")
@@ -393,6 +512,17 @@ class Game:
 
     ###########################################################################
     def _validate_cards(self) -> None:  # pragma: no coverage
+        seen = set()
+        areas = list(self.card_piles.values()) + [self.trash_pile]
+        for player in self.players.values():
+            areas.extend(player.piles.values())
+            areas.extend(player.set_aside.values())
+        for area in areas:
+            for card in area:
+                assert card.uuid not in seen, f"Duplicate card UUID: {card.uuid} ({card.name})"
+                seen.add(card.uuid)
+        if "total_cards" not in self._original:
+            return
         try:
             assert self.count_cards() == self._original["total_cards"]
         except AssertionError:
@@ -401,22 +531,59 @@ class Game:
 
     ###########################################################################
     def turn(self) -> None:
-        """TODO"""
+        """Execute one turn using TurnQueue (regular, extra, or Fleet)."""
+        if self.game_over:
+            return
         self._validate_cards()
-        self.current_player = self.player_to_left(self.current_player)
+        entry: TurnEntry = self.turn_queue.pop_next_turn()
+        self.current_player = self.players[entry.player_uuid]
         assert self.current_player is not None
-        self.current_player.turn()
+        self.current_player.turn(turn_entry=entry)
         self._validate_cards()
-        self._turns.append(self.current_player.uuid)
-        if self.isGameOver():
-            self.game_over = True
-            for plr in self.player_list():
-                plr.game_over()
+        self.turn_queue.finish_current_turn()
+        self._turns.append(entry.player_uuid)
+
+        if self.turn_queue.fleet_started or self.isGameOver():
+            # Check for Fleet extra round (Ch. VI After turn p. 44)
+            if not self.turn_queue.fleet_started:
+                fleet_uuids = {
+                    plr.uuid for plr in self.player_list() if any(p.name == "Fleet" for p in plr.projects)
+                }
+                if fleet_uuids:
+                    self.turn_queue.start_fleet_round(entry.player_uuid, fleet_uuids)
+            if (
+                not self.turn_queue.fleet_started
+                or not self.turn_queue.has_pending_post_game_turns()
+            ):
+                self.game_over = True
+                for plr in self.players_in_turn_order():
+                    plr.game_over()
+
+    ###########################################################################
+    def snapshot(self) -> Any:
+        """Capture a complete, deterministic snapshot of engine state (for undo/rewind/search)."""
+        from dominion.Snapshot import capture_snapshot
+
+        return capture_snapshot(self)
+
+    ###########################################################################
+    def restore(self, snap: Any) -> None:
+        """Rewind this Game instance in-place to a previously captured snapshot."""
+        from dominion.Snapshot import restore_snapshot
+
+        restore_snapshot(self, snap)
+
+    ###########################################################################
+    def clone(self) -> "Game":
+        """Create an independent deep copy of this Game's engine state (with headless controllers)."""
+        from dominion.Snapshot import clone_game
+
+        return clone_game(self)
 
 
 ###############################################################################
 class TestGame(Game):
-    """Game for testing purposes"""
+    """Game for testing purposes (deterministic defaults unless overridden)."""
 
     __test__ = False
 
@@ -424,13 +591,20 @@ class TestGame(Game):
         if "allies" not in kwargs:
             kwargs["allies"] = []
             kwargs["ally_path"] = "tests/allies"
-        kwargs["shelters"] = False  # Can cause lots of bad interactions
+        if "shelters" not in kwargs:
+            kwargs["shelters"] = False
+        if "prosperity" not in kwargs:
+            kwargs["prosperity"] = False
+        if "random_start_player" not in kwargs:
+            kwargs["random_start_player"] = False
         if "quiet" not in kwargs:
             kwargs["quiet"] = True
-        # Shaman causes lots of bad interactions
-        if "Shaman" not in kwargs.get("initcards", []):
-            kwargs["badcards"] = kwargs.get("badcards", [])
-            kwargs["badcards"].append("Shaman")
+        # Shaman and Changeling trigger global prompts that interfere with unrelated unit tests
+        badcards = list(kwargs.get("badcards", []))
+        for noisy in ("Shaman", "Changeling"):
+            if noisy not in kwargs.get("initcards", []) and noisy not in badcards:
+                badcards.append(noisy)
+        kwargs["badcards"] = badcards
         super().__init__(**kwargs)
 
 

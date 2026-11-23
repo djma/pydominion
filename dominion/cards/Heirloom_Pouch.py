@@ -19,6 +19,7 @@ class Card_Pouch(Card.Card):
         self.coin = 1
         self.buys = 1
         self.purchasable = False
+        self.insupply = False
 
 
 ###############################################################################
@@ -29,7 +30,9 @@ class TestPouch(unittest.TestCase):
         self.g = Game.TestGame(quiet=True, numplayers=1, initcards=["Tracker"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Pouch")
+        self.card = self.plr.all_cards()["Pouch"]
+        assert self.card is not None
+        self.plr.remove_card(self.card)
 
     def test_play(self):
         """Test Play"""

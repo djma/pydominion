@@ -40,8 +40,9 @@ class TestMerchantShip(unittest.TestCase):
         """Play a merchant ship"""
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.coins.get(), 2)
-        self.assertEqual(self.plr.piles[Piles.DURATION].size(), 1)
+        self.assertEqual(self.plr.piles[Piles.PLAYED].size(), 1)
         self.plr.end_turn()
+        self.assertEqual(self.plr.piles[Piles.DURATION].size(), 1)
         self.plr.start_turn()
         self.assertEqual(self.plr.piles[Piles.DURATION].size(), 0)
         self.assertEqual(self.plr.coins.get(), 2)

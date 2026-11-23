@@ -31,11 +31,16 @@ class Card_Flagship(Card):
         """The next time you play a non-Command Action card, replay it."""
         if not card.isAction() or card.isCommand():
             return {}
-        if self.location != Piles.DURATION:
+        if self.location not in (Piles.PLAYED, Piles.DURATION):
+            return {}
+        if not self.permanent:
             return {}
         player.output(f"Flagship plays {card} again")
-        player.play_card(card, cost_action=False, discard=False, post_action_hook=False)
-        player.move_card(self, Piles.PLAYED)
+        self.permanent = False
+        player.cancel_duration_stay(self)
+        if self.location == Piles.DURATION:
+            player.move_card(self, Piles.PLAYED)
+        player.play_card(card, cost_action=False, discard=True, post_action_hook=False, move_card=False, throne_card=self)
         return {}
 
 
@@ -55,6 +60,8 @@ class TestFlagship(unittest.TestCase):
         coins = self.plr.coins.get()
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.coins.get(), coins + 2)
+        self.assertIn("Flagship", self.plr.piles[Piles.PLAYED])
+        self.plr.end_turn()
         self.assertIn("Flagship", self.plr.piles[Piles.DURATION])
 
     def test_play_action(self) -> None:

@@ -3,22 +3,28 @@
 from typing import Optional, TYPE_CHECKING, Self
 
 from dominion import NoCardException
+from dominion.Card import CardType
 
 if TYPE_CHECKING:
     from dominion import Game
     from dominion.Card import Card
+    from dominion.Cost import Cost
 
 
 ###############################################################################
 class CardPile:
-    """Card Pile"""
+    """Card Pile with explicit Supply membership and Randomizer metadata."""
 
-    def __init__(self, game: Optional["Game.Game"] = None) -> None:
+    def __init__(self, game: Optional["Game.Game"] = None, in_supply: bool = True) -> None:
         self.cards: list[Card] = []
         self.game = game
+        self.in_supply: bool = in_supply
+        self.is_kingdom: bool = False
         self.embargo_level = 0
         self.gatheredvp = 0
         self.trait: Optional[str] = None
+        self.randomizer_cost: Optional["Cost"] = None
+        self.randomizer_types: list[CardType] = []
 
     ###########################################################################
     def init_cards(self, num_cards: int = 0, card_class: Optional[type["Card"]] = None) -> None:
@@ -30,7 +36,7 @@ class CardPile:
             self.cards.append(card)
 
     ##########################################################################
-    def set_debug(self):
+    def set_debug(self) -> None:
         """Set debug for all cards in a pile"""
         for card in self.cards:
             card.debug = True
@@ -71,19 +77,13 @@ class CardPile:
 
     ###########################################################################
     def __lt__(self, other_card_pile: Self) -> bool:
-        self_name = self.cards[-1].name
-        if other_card_pile.cards:
-            other_name = other_card_pile.cards[-1].name
-        else:
-            try:
-                other_name = other_card_pile.cards[-1].name
-            except IndexError:
-                other_name = "ZZZZ"
+        self_name = self.cards[-1].name if self.cards else "ZZZZ"
+        other_name = other_card_pile.cards[-1].name if other_card_pile.cards else "ZZZZ"
         return self_name < other_name
 
     ###########################################################################
     def setup(self, game: "Game.Game") -> None:
-        """Setup card pile"""
+        """Setup card pile (runs once on the top/representative card)."""
         if self.cards:
             self.cards[-1].setup(game)
 
@@ -93,28 +93,38 @@ class CardPile:
         return not self.cards
 
     ###########################################################################
-    def remove(self, name: str = "") -> Optional["Card"]:
-        """Remove a card from the card pile"""
+    def remove(self, name: str = "", top_only: bool = False) -> Optional["Card"]:
+        """Remove a card from the card pile.
+
+        - Without `name`, pops the top card (index -1) or raises NoCardException.
+        - With `name` and `top_only=True`, only removes if top card matches `name`.
+        - With `name` and `top_only=False`, removes the topmost matching card (legacy/setup).
+        """
         if not name:
             try:
                 return self.cards.pop()
             except IndexError:
-                raise NoCardException
-        for card in self.cards:
-            if card.name == name:
-                self.cards.remove(card)
-                return card
+                raise NoCardException from None
+        if top_only:
+            if self.cards and self.cards[-1].name == name:
+                return self.cards.pop()
+            return None
+        for idx in range(len(self.cards) - 1, -1, -1):
+            if self.cards[idx].name == name:
+                return self.cards.pop(idx)
         return None
 
     ###########################################################################
     def add(self, card: "Card") -> None:
-        """Add a card to the bottom of the deck"""
+        """Add a card to the bottom of the pile (used by rotate/init)."""
         self.cards.insert(0, card)
 
     ###########################################################################
     def add_to_top(self, card: "Card") -> None:
-        """Add a card to the top of the deck"""
+        """Add a card to the top of the pile (used when returning cards to their pile)."""
         self.cards.append(card)
+
+    return_card = add_to_top
 
     ###########################################################################
     def top_card(self) -> str:
@@ -145,7 +155,7 @@ class CardPile:
                 break
             if next_card := self.remove():
                 self.add(next_card)
-            if count > 20:  # Only one sort of card in deck
+            if count > len(self.cards):  # Only one sort of card in pile
                 break
 
     ###########################################################################

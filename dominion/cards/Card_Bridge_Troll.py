@@ -23,21 +23,14 @@ class Card_BridgeTroll(Card.Card):
         self.name = "Bridge Troll"
         self.buys = 1
         self.cost = 5
-        self._played = False
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        self._played = True
+        player.turn_effects.add_cost_modifier("Bridge Troll", -1, persists_next_turn=True)
         for plr in player.attack_victims():
             plr.output(f"{player.name}'s Bridge Troll set your -1 Coin token")
             plr.coin_token = True
 
-    def hook_card_cost(self, game: Game.Game, player: Player.Player, card: Card.Card) -> int:
-        if self._played:
-            return -1
-        return 0
-
     def duration(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, str]:
-        self._played = False
         player.buys.add(1)
         return {}
 

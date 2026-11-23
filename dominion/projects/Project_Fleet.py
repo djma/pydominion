@@ -14,9 +14,8 @@ class Project_Fleet(Project.Project):
         self.name = "Fleet"
         self.cost = 5
 
-    def hook_end_of_game(self, game: "Game.Game", player: "Player.Player") -> None:
-        player.output("Fleet gives you another turn")
-        player.turn()
+    # Fleet extra-round orchestration is handled by Game.turn() via TurnQueue.start_fleet_round()
+    # immediately after game-end conditions are met and BEFORE end-of-game scoring.
 
 
 ###############################################################################
@@ -27,14 +26,25 @@ class Test_Fleet(unittest.TestCase):
         self.plr = self.g.player_list()[0]
 
     def test_play(self):
+        """Fleet grants an extra round of turns after the game ends."""
         self.plr.assign_project("Fleet")
+        # Empty Provinces so game-end triggers after the regular turn
+        while not self.g.card_piles["Province"].is_empty():
+            card = self.g.get_card_from_pile("Province")
+            self.g.trash_pile.add(card)
+            card.location = Piles.TRASH
+        self.plr.test_input = ["End Phase", "End Phase"]
+        self.g.turn()
+        self.assertFalse(self.g.game_over)
+        self.assertTrue(self.g.turn_queue.has_pending_fleet_turns())
+        # Execute the Fleet turn
         self.plr.test_input = ["End Phase", "Buy Copper", "End Phase"]
-        self.plr.game_over()
-        self.g.print_state()
-        self.assertIn("Copper", self.plr.piles[Piles.DISCARD])
+        before_coppers = self.plr.get_cards().get("Copper", 0)
+        self.g.turn()
+        self.assertTrue(self.g.game_over)
+        self.assertEqual(self.plr.get_cards().get("Copper", 0), before_coppers + 1)
         self.assertTrue(self.plr.piles[Piles.PLAYED].is_empty())
-        self.assertEqual(self.plr.actions.get(), 1)  # Should be reset to 1
-        self.assertEqual(self.plr.buys.get(), 0)  # Had 1, bought a copper
+        self.assertEqual(self.plr.turn_number, 1)  # Fleet turn does not count as a regular turn
 
 
 ###############################################################################

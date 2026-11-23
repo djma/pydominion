@@ -15,14 +15,18 @@ class Event_Mission(Event.Event):
         self.name = "Mission"
         self.cost = 4
 
-    def special(self, game: "Game.Game", player: "Player.Player") -> None:
-        if not game.last_turn(player):
-            player.output("You had the previous turn")
+    def can_buy(self, game: "Game.Game", player: "Player.Player") -> bool:
+        return "Mission" not in player.once
 
-    def hook_end_turn(self, game: "Game.Game", player: "Player.Player") -> None:
-        if game.last_turn(player):
-            game.current_player = game.playerToRight(player)
-            player.limits[Limits.BUY] = 0
+    def special(self, game: "Game.Game", player: "Player.Player") -> None:
+        if "Mission" in player.once:
+            player.output("Mission can only be used once per turn")
+            return
+        player.once["Mission"] = True
+        if game.last_turn(player) or not game.turn_queue.can_take_extra_turn(player.uuid):
+            player.output("You had the previous turn")
+            return
+        game.schedule_extra_turn(player, source="Mission", modifiers={"no_buy_cards": True})
 
 
 ###############################################################################
@@ -40,9 +44,14 @@ class TestMission(unittest.TestCase):
         """Use Mission"""
         self.plr.coins.add(4)
         self.plr.perform_event(self.card)
+        self.assertEqual(len(self.g.turn_queue.extra_queue), 1)
+        entry = self.g.turn_queue.extra_queue[0]
+        self.assertEqual(entry.player_uuid, self.plr.uuid)
+        self.assertTrue(entry.modifiers.get("no_buy_cards"))
         self.plr.end_turn()
-        self.g.print_state()
-        # TODO - need to test somehow
+        self.plr.test_input = ["End Phase", "End Phase"]
+        self.g.turn()
+        self.assertEqual(self.g.current_player, self.plr)
 
 
 ###############################################################################

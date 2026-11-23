@@ -16,6 +16,7 @@ class Card_CursedGold(Card.Card):
         self.cost = 4
         self.coin = 3
         self.purchasable = False
+        self.insupply = False
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         try:
@@ -30,7 +31,9 @@ class Test_CursedGold(unittest.TestCase):
         self.g = Game.TestGame(quiet=True, numplayers=1, initcards=["Pooka"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Cursed Gold")
+        self.card = self.plr.all_cards()["Cursed Gold"]
+        assert self.card is not None
+        self.plr.remove_card(self.card)
 
     def test_play(self) -> None:
         self.plr.add_card(self.card, Piles.HAND)

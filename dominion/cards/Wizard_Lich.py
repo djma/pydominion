@@ -29,16 +29,15 @@ class Card_Lich(Card.Card):
         player.skip_turn = True
 
     def hook_trash_this_card(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, Any]:
-        """Discard rather than trash"""
-        player.add_card(self, Piles.DISCARD)
-        player.piles[Piles.HAND].remove(self)
-        in_trash = [_ for _ in game.trash_pile if _.cost < self.cost]
+        """When you trash this, discard it and gain a cheaper card from the trash."""
+        player.move_card(self, Piles.DISCARD)
+        in_trash = [_ for _ in game.trash_pile if player.card_cost(_) < player.card_cost(self)]
         if in_trash:
             crd = player.plr_pick_card(cardsrc=in_trash, force=True, num=1)
             if not crd:
                 return {}
             player.move_card(crd, Piles.DISCARD)
-        return {OptionKeys.TRASH: False}
+        return {}
 
 
 ###############################################################################

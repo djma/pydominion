@@ -21,8 +21,16 @@ class Card_Zombie_Mason(Card.Card):
         self.numcards = 1
 
     def setup(self, game: Game.Game) -> None:
-        game.trash_pile.add(self)
-        self.location = Piles.TRASH
+        if self.name in game.card_piles:
+            card = game.card_piles[self.name].remove()
+            del game.card_piles[self.name]
+            if card is not None:
+                game.trash_pile.addToTop(card)
+                card.location = Piles.TRASH
+                return
+        if self not in game.trash_pile:
+            game.trash_pile.addToTop(self)
+            self.location = Piles.TRASH
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         try:
@@ -43,7 +51,8 @@ class TestZombieMason(unittest.TestCase):
         self.g = Game.TestGame(numplayers=1, initcards=["Zombie Mason", "Guide"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.plr.get_card_from_pile("Zombie Mason")
+        self.card = self.g.trash_pile["Zombie Mason"]
+        assert self.card is not None
 
     def test_play(self) -> None:
         """Test Playing"""

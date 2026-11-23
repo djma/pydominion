@@ -18,6 +18,7 @@ class Card_Haunted_Mirror(Card.Card):
         self.coin = 1
         self.required_cards = [("Card", "Ghost")]
         self.purchasable = False
+        self.insupply = False
 
     def hook_trash_this_card(
         self, game: Game.Game, player: Player.Player
@@ -37,7 +38,9 @@ class Test_Haunted_Mirror(unittest.TestCase):
         self.g = Game.TestGame(quiet=True, numplayers=1, initcards=["Cemetery", "Moat"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Haunted Mirror")
+        self.card = self.plr.all_cards()["Haunted Mirror"]
+        assert self.card is not None
+        self.plr.remove_card(self.card)
 
     def test_play(self) -> None:
         self.plr.add_card(self.card, Piles.HAND)

@@ -28,8 +28,9 @@ class Card_SirVander(KnightCard):
     def special(self, game: "Game.Game", player: "Player.Player") -> None:
         self.knight_special(game, player)
 
-    def hook_trashcard(self, _, player):
-        player.gain_card("gold")
+    def hook_trash_this_card(self, game: "Game.Game", player: "Player.Player") -> dict:
+        player.gain_card("Gold")
+        return {}
 
 
 ###############################################################################

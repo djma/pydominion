@@ -27,14 +27,21 @@ class Card_Curse(Card.Card):
             return 10
         return 10 * (game.numplayers - 1)
 
-    def special(self, game: Game.Game, player: Player.Player) -> None:
+    def hook_coinvalue(self, game: Game.Game, player: Player.Player) -> int:
         if "Charlatan" in game.card_piles:
-            player.coins.add(1)
+            return 1
+        return 0
+
+    def special(self, game: Game.Game, player: Player.Player) -> None:
+        pass
 
     def setup(self, game: Game.Game) -> None:
         if "Charlatan" in game.card_piles:
-            self.cardtype = [Card.CardType.VICTORY, Card.CardType.TREASURE]
-            self.desc = "-1 VP; +$1"
+            for c in game.card_piles["Curse"]:
+                c.desc = "-1 VP; +$1"
+                c.playable = True
+            game.card_instances["Curse"].desc = "-1 VP; +$1"
+            game.card_instances["Curse"].playable = True
 
 
 ###############################################################################

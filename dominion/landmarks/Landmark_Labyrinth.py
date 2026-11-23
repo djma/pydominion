@@ -25,7 +25,7 @@ class Landmark_Labyrinth(Landmark.Landmark):
         game.specials[LABYRINTH] = 6 * game.numplayers
 
     def hook_gain_card(self, game: Game.Game, player: Player.Player, card: Card.Card) -> dict[OptionKeys, Any]:
-        if len(player.stats["gained"]) == 1:  # not including the current one
+        if len(player.stats["gained"]) == 2 and game.specials[LABYRINTH] >= 2:
             player.add_score("Labyrinth", 2)
             player.output("Gained 2VP from Labyrinth")
             game.specials[LABYRINTH] -= 2

@@ -19,12 +19,12 @@ class Event_Journey(Event.Event):
         self.name = "Journey"
         self.cost = 4
 
+    def special(self, game: "Game.Game", player: "Player.Player") -> None:
+        if not game.last_turn(player):
+            game.schedule_extra_turn(player, source="Journey")
+
     def hook_cleanup(self, game: "Game.Game", player: "Player.Player") -> dict[OptionKeys, Any]:
         return {OptionKeys.DISCARD_PLAYED: False}
-
-    def hook_end_turn(self, game: "Game.Game", player: "Player.Player") -> None:
-        if not game.last_turn(player):
-            game.current_player = game.playerToRight(player)
 
 
 ###############################################################################

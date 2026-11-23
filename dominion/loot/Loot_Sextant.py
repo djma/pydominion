@@ -32,14 +32,21 @@ class Loot_Sextant(Loot.Loot):
                 break
             cards.append(card)
 
-        if to_discard := player.card_sel(
+        to_discard = player.card_sel(
             prompt="Pick cards to discard", anynum=True, cardsrc=cards
-        ):
-            for card in cards:
-                if card in to_discard:
-                    player.add_card(card, Piles.DISCARD)
-                else:
-                    player.add_card(card, Piles.DECK)
+        ) if cards else []
+        player.discard_cards(to_discard, hook=True)
+        remaining = [card for card in cards if card not in to_discard]
+        while remaining:
+            if len(remaining) == 1:
+                card = remaining[0]
+            else:
+                card = player.plr_pick_card(
+                    prompt="Put cards onto your deck (last chosen goes on top)",
+                    cardsrc=remaining, force=True,
+                )
+            remaining.remove(card)
+            player.add_card(card, Piles.TOPDECK)
 
 
 ###############################################################################
@@ -71,12 +78,24 @@ class TestSextant(unittest.TestCase):
             "Select Estate",
             "Select Province",
             "Finish",
+            "Select Silver",
         ]
         self.plr.play_card(sextant)
         self.assertIn("Province", self.plr.piles[Piles.DISCARD])
         self.assertIn("Duchy", self.plr.piles[Piles.DISCARD])
         self.assertIn("Silver", self.plr.piles[Piles.DECK])
         self.assertIn("Gold", self.plr.piles[Piles.DECK])
+
+    def test_keep_all_in_chosen_order(self) -> None:
+        """Keeping every card must preserve the cards and the chosen order."""
+        self.plr.piles[Piles.DECK].set("Copper", "Silver", "Gold")
+        self.plr.piles[Piles.DISCARD].empty()
+        sextant = self.g.get_card_from_pile("Loot", "Sextant")
+        self.plr.add_card(sextant, Piles.HAND)
+        self.plr.test_input = ["Finish", "Select Silver", "Select Copper"]
+        self.plr.play_card(sextant)
+        self.assertEqual([card.name for card in self.plr.piles[Piles.DECK]], ["Silver", "Copper", "Gold"])
+        self.assertEqual(len(self.plr.piles[Piles.DISCARD]), 0)
 
 
 ###############################################################################

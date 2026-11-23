@@ -86,13 +86,13 @@ class TestDiscardHand(unittest.TestCase):
         self.plr = self.game.player_list()[0]
 
     def test_discard(self) -> None:
-        """Test discard_hand()"""
+        """Test discard_hand() discards HAND only, leaving PLAYED intact until Clean-up"""
         self.plr.piles[Piles.HAND].set("Copper", "Silver")
         self.plr.piles[Piles.PLAYED].set("Estate", "Duchy")
         self.plr.discard_hand({})
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 0)
-        self.assertEqual(self.plr.piles[Piles.PLAYED].size(), 0)
-        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 4)
+        self.assertEqual(self.plr.piles[Piles.PLAYED].size(), 2)
+        self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 2)
 
     def test_discard_keep_played(self) -> None:
         """Test discard_hand() with keeping played"""
@@ -979,9 +979,11 @@ class TestWay(unittest.TestCase):
         self.assertEqual(len(self.plr.played_ways), 0)
 
     def test_relevant_way(self) -> None:
-        """Is the way in the relevant cards"""
-        rel = self.plr.relevant_cards()
-        self.assertIn(self.way, rel)
+        """An unplayed Way must NOT be in relevant_cards(); once played, it is."""
+        self.assertNotIn(self.way, self.plr.relevant_cards())
+        self.plr.actions.set(1)
+        self.plr.perform_way(self.way, self.card)
+        self.assertIn(self.way, self.plr.relevant_cards())
 
 
 ###############################################################################

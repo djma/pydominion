@@ -1,146 +1,43 @@
-"""Player is a non-interactive bot of dubious intelligence - big money strategy"""
+"""Player using the BigMoneyBotController."""
 
-import inspect
 import sys
 from types import ModuleType
-from typing import Any, TYPE_CHECKING, Optional, cast
-
-from rich.console import Console
+from typing import Any, Optional, TYPE_CHECKING
 
 from dominion import Piles
+from dominion.Controller import BigMoneyBotController
 from dominion.Player import Player
 
 if TYPE_CHECKING:
-    from dominion.Game import Game
     from dominion.Card import Card
+    from dominion.Game import Game
 
 
-###############################################################################
-###############################################################################
 ###############################################################################
 class BotPlayer(Player):
-    """The Bot"""
+    """Big-money bot player backed by BigMoneyBotController."""
 
-    def __init__(self, game: "Game", name: str = "", quiet: bool = False, **kwargs: Any):
-        self.colour = "red on black"
-        self.console = Console()
-        Player.__init__(self, game, name, quiet, **kwargs)
+    def __init__(self, game: "Game", name: str = "", quiet: bool = False, **kwargs: Any) -> None:
+        kwargs.pop("number", None)
+        controller = BigMoneyBotController()
+        self.colour = controller.colour
+        self.console = controller.console
+        super().__init__(game, name, quiet=quiet, controller=controller, **kwargs)
 
-    ###########################################################################
-    def output(self, msg: str, end: str = "\n") -> None:
-        self.messages.append(msg)
-        if self.quiet:
-            return
-        prompt = f"[{self.colour}]{self.name}[/]: "
-        current_card_stack = ""
-        try:
-            for card in self.currcards:
-                current_card_stack += f"{card.name}> "
-        except IndexError:
-            pass
-        self.console.print(f"{prompt}{current_card_stack}{msg}", end=end)
-
-    ###########################################################################
     @classmethod
-    def get_options(cls, options):
-        try:
-            opts = {}
-            for opt in options:
-                if opt["action"] == "buy":
-                    if opt["card"].name == "Colony":
-                        opts["colony"] = opt
-                    if opt["card"].name == "Province":
-                        opts["province"] = opt
-                    if opt["card"].name == "Platinum":
-                        opts["platinum"] = opt
-                    if opt["card"].name == "Gold":
-                        opts["gold"] = opt
-                    if opt["card"].name == "Duchy":
-                        opts["duchy"] = opt
-                    if opt["card"].name == "Silver":
-                        opts["silver"] = opt
-                if opt["action"] == "quit":
-                    opts["quit"] = opt
-                if opt["action"] == "spendall":
-                    opts["spendall"] = opt
-                if opt["action"] == "payback":
-                    opts["payback"] = opt
+    def get_options(cls, options: list[Any]) -> dict[str, Any]:
+        return BigMoneyBotController.get_options(options)
 
-            return opts
-        except KeyError as exc:  # pragma: no cover
-            print(f"Options={options}")
-            print(f"Exception: {str(exc)}")
-            raise
-
-    ###########################################################################
-    def user_input(self, options, prompt: str):  # pylint: disable=too-many-return-statements
-        opts = self.get_options(options)
-        if "spendall" in opts:
-            return opts["spendall"]
-        if "payback" in opts:
-            return opts["payback"]
-        if self.buys.get() == 0:
-            return opts["quit"]
-        coin = self.coins.get()
-        self.output(f"Have {coin} coins")
-        if coin >= 11 and "colony" in opts:
-            return opts["colony"]
-        if coin >= 9 and "platinum" in opts:
-            return opts["platinum"]
-        if coin >= 8:
-            return opts["province"]
-        if coin >= 6 and "gold" in opts:
-            return opts["gold"]
-        if coin >= 5 and "duchy" in opts:
-            return opts["duchy"]
-        if coin >= 3 and "silver" in opts:
-            return opts["silver"]
-        return opts["quit"]
-
-    ###########################################################################
     @classmethod
-    def get_calling_card(cls) -> Optional[ModuleType]:  # Should be type module
-        """Get the module that represents the card doing requiring the response"""
-        stack = inspect.stack()
-        for rec in stack:
-            mod = inspect.getmodule(rec[0])
-            assert mod is not None
-            mod_name = mod.__name__.replace("dominion.", "")
-            if mod_name not in ("BotPlayer", "Player", "__main__"):
-                mod = inspect.getmodule(rec[0])
-                return mod
-        return None
+    def get_calling_card(cls) -> Optional[ModuleType]:
+        return BigMoneyBotController.get_calling_card()
 
-    ###########################################################################
-    def check_unexile(self, card_name: str) -> None:
-        """Unexile treasure cards if we need to"""
-        card = self.game.card_instances[card_name]
-        if card.isTreasure():
-            self.unexile(card_name)
-
-    ###########################################################################
-    def card_sel(self, num: int = 1, **kwargs: Any) -> list["Card"]:
-        mod = self.get_calling_card()
-        if hasattr(mod, "botresponse"):
-            return cast(list["Card"], mod.botresponse(self, "cards", kwargs=kwargs))  # type: ignore
-        assert False, f"BigMoneyBot can't select cards from {mod.__name__} {kwargs=}"  # type: ignore
-
-    ###########################################################################
-    def plr_choose_options(self, prompt, *choices) -> Any:
-        mod = self.get_calling_card()
-        if hasattr(mod, "botresponse"):
-            return mod.botresponse(self, "choices", args=choices)  # type: ignore
-        assert False, f"BigMoneyBot can't choose options from {mod.__name__} {choices=}"  # type: ignore
-
-    ###########################################################################
     def pick_to_discard(self, num_to_discard: int, keepvic: bool = False) -> list["Card"]:
-        """Many attacks require this sort of response.
-        Return num cards to discard"""
+        """Return `num_to_discard` cards from hand (non-treasures first, then cheapest treasures)."""
         if num_to_discard <= 0:
             return []
-        to_discard = []
+        to_discard: list[Card] = []
 
-        # Discard non-treasures first
         for card in self.piles[Piles.HAND]:
             if card.isTreasure():
                 continue
@@ -150,18 +47,23 @@ class BotPlayer(Player):
         if len(to_discard) >= num_to_discard:
             return to_discard[:num_to_discard]
 
-        # Discard the cheapest treasures next
-        while len(to_discard) < num_to_discard:
-            for treas in ("Copper", "Silver", "Gold"):
-                for card in self.piles[Piles.HAND]:
-                    if card.name == treas:
-                        to_discard.append(card)
-        if len(to_discard) >= num_to_discard:
-            return to_discard[:num_to_discard]
+        for treas in ("Copper", "Silver", "Gold", "Platinum"):
+            for card in self.piles[Piles.HAND]:
+                if card.name == treas and card not in to_discard:
+                    to_discard.append(card)
+                    if len(to_discard) >= num_to_discard:
+                        return to_discard[:num_to_discard]
+
+        # Fall back to any remaining cards in hand
+        for card in self.piles[Piles.HAND]:
+            if card not in to_discard:
+                to_discard.append(card)
+                if len(to_discard) >= num_to_discard:
+                    return to_discard[:num_to_discard]
+
         hand_contents = ", ".join([_.name for _ in self.piles[Piles.HAND]])
         sys.stderr.write(f"Couldn't find cards to discard {num_to_discard} from {hand_contents}")
-        sys.stderr.write(f"Managed to get {(', '.join([_.name for _ in to_discard]))} so far\n")
-        return []
+        return to_discard
 
 
 # EOF

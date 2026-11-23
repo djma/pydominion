@@ -13,8 +13,8 @@ class Card_Townsfolk(Card.Card):
         Card.Card.__init__(self)
         self.name = "Townsfolk"
         self.base = Card.CardExpansion.ALLIES
-        self.cardtype = [Card.CardType.ACTION, Card.CardType.LIAISON]
-        self.required_cards = ["Curse"]
+        self.cardtype = [Card.CardType.ACTION, Card.CardType.TOWNSFOLK]
+        self.cost = 2
         self.pile = "Townsfolk"
 
     @classmethod
@@ -28,10 +28,12 @@ class TownsfolkCardPile(CardPile.CardPile):
     """Townsfolk pile"""
 
     def __init__(self, game):
-        self.mapping = game_setup.get_card_classes("Townsfolk", game_setup.PATHS[Keys.CARDS], "Card_")
+        self.mapping = game_setup.get_card_classes("Townsfolk", game.config.paths[Keys.CARDS], "Card_")
         for name, class_ in self.mapping.items():
-            game.card_instances[name] = class_()
-        super().__init__()
+            inst = class_()
+            inst.game = game
+            game.card_instances[name] = inst
+        super().__init__(game=game)
 
     def init_cards(self, num_cards=0, card_class=None):
         # pylint: disable=import-outside-toplevel

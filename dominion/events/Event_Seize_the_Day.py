@@ -16,10 +16,13 @@ class Event_Seize_the_Day(Event.Event):
         self.name = "Seize the Day"
         self.cost = 4
 
+    def can_buy(self, game: Game.Game, player: Player.Player) -> bool:
+        return SEIZE not in player.specials
+
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        if not SEIZE in player.specials:
+        if SEIZE not in player.specials:
             player.specials[SEIZE] = True
-            game.current_player = game.playerToRight(player)
+            game.schedule_extra_turn(player, source="Seize the Day", enforce_consecutive_cap=False)
         else:
             player.output("Can only play this once per game")
 

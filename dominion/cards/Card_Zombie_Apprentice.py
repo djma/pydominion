@@ -21,8 +21,16 @@ class Card_Zombie_Apprentice(Card.Card):
         self.numcards = 1
 
     def setup(self, game: Game.Game) -> None:
-        game.trash_pile.add(self)
-        self.location = Piles.TRASH
+        if self.name in game.card_piles:
+            card = game.card_piles[self.name].remove()
+            del game.card_piles[self.name]
+            if card is not None:
+                game.trash_pile.addToTop(card)
+                card.location = Piles.TRASH
+                return
+        if self not in game.trash_pile:
+            game.trash_pile.addToTop(self)
+            self.location = Piles.TRASH
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         actions = PlayArea.PlayArea(initial=[_ for _ in player.piles[Piles.HAND] if _.isAction()])
@@ -42,12 +50,13 @@ class TestZombieApprentice(unittest.TestCase):
         self.g = Game.TestGame(numplayers=1, initcards=["Zombie Apprentice", "Moat"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Zombie Apprentice")
+        self.card = self.g.trash_pile["Zombie Apprentice"]
+        assert self.card is not None
 
     def test_play_no_actions(self) -> None:
         """Play with no actions suitable"""
         tsize = self.g.trash_pile.size()
-        self.plr.play_card(self.card, discard=False, cost_action=False)
+        self.plr.play_card(self.card, discard=False, cost_action=False, move_card=False)
         self.assertIn("Zombie Apprentice", self.g.trash_pile)
         self.assertEqual(self.g.trash_pile.size(), tsize)
 
@@ -55,7 +64,7 @@ class TestZombieApprentice(unittest.TestCase):
         """Play with an action"""
         self.plr.piles[Piles.HAND].set("Moat")
         self.plr.test_input = ["Moat"]
-        self.plr.play_card(self.card, discard=False, cost_action=False)
+        self.plr.play_card(self.card, discard=False, cost_action=False, move_card=False)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 3)
         self.assertEqual(self.plr.actions.get(), 2)
         self.assertIn("Zombie Apprentice", self.g.trash_pile)

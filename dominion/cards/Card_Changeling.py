@@ -18,8 +18,8 @@ class Card_Changeling(Card.Card):
         self.name = "Changeling"
         self.cost = 3
 
-    def hook_gain_card(self, game: Game.Game, player: Player.Player, card: Card.Card) -> dict[OptionKeys, Any]:
-        if card.cost < 3:
+    def hook_any_gain_card(self, game: Game.Game, player: Player.Player, card: Card.Card) -> dict[OptionKeys, Any]:
+        if card.name == "Changeling" or player.card_cost(card) < 3:
             return {}
         if game.card_piles["Changeling"].is_empty():
             return {}
@@ -71,7 +71,7 @@ class TestChangeling(unittest.TestCase):
         """Play and swap for something"""
         self.plr.phase = Phase.NIGHT
         self.plr.piles[Piles.PLAYED].set("Gold")
-        self.plr.test_input = ["Exchange for Gold"]
+        self.plr.test_input = ["Exchange for Gold", "Keep Gold"]
         self.plr.play_card(self.card)
         self.assertIn("Gold", self.plr.piles[Piles.DISCARD])
         self.assertIn("Changeling", self.g.trash_pile)

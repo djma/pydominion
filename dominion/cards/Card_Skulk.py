@@ -28,9 +28,10 @@ class Card_Skulk(Card.Card):
         return {}
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
-        for plr in player.attack_victims():
+        victims = player.attack_victims()
+        for plr in victims:
             plr.output(f"{player.name}'s Skulk hexed you")
-            plr.receive_hex()
+        game.distribute_hex(player, victims)
 
 
 ###############################################################################

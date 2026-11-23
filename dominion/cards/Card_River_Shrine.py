@@ -17,15 +17,19 @@ class Card_River_Shrine(Card.Card):
             gain a card costing up to $4."""
         self.name = "River Shrine"
         self.cost = 4
+        self._played_normally = False
 
     def special(self, game: Game.Game, player: Player.Player) -> None:
         """Trash up to 2 cards from your hand."""
+        self._played_normally = True
         player.plr_trash_card(num=2)
 
     def hook_cleanup(self, game: "Game.Game", player: "Player.Player") -> dict[OptionKeys, Any]:
         """At the start of Clean-up, if you didn't gain any cards in your
         Buy phase this turn, gain a card costing up to $4."""
-        if not player.stats["bought"]:
+        played_normally = self._played_normally
+        self._played_normally = False
+        if played_normally and not (player.stats.get("gained_in_buy", []) or player.stats["bought"]):
             player.plr_gain_card(cost=4)
         return {}
 
@@ -68,6 +72,25 @@ class Test_River_Shrine(unittest.TestCase):
         ]
         self.plr.turn()
         self.assertIn("Copper", self.g.trash_pile)
+
+    def test_buy_phase_gain_suppresses_cleanup_gain(self):
+        from unittest.mock import patch
+        from dominion import Phase
+
+        self.plr.add_card(self.card, Piles.HAND)
+        self.plr.test_input = ["Finish"]
+        self.plr.play_card(self.card)
+        self.plr.phase = Phase.BUY
+        self.plr.gain_card("Silver")
+        with patch.object(self.plr, "plr_gain_card", side_effect=AssertionError("Extra gain")):
+            self.card.hook_cleanup(self.g, self.plr)
+        self.assertFalse(self.card._played_normally)
+
+    def test_unplayed_text_has_no_cleanup_gain(self):
+        from unittest.mock import patch
+
+        with patch.object(self.plr, "plr_gain_card", side_effect=AssertionError("Way cleanup gain")):
+            self.card.hook_cleanup(self.g, self.plr)
 
 
 ###############################################################################

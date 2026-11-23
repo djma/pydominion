@@ -16,7 +16,7 @@ class Way_Frog(Way.Way):
         self.name = "Way of the Frog"
 
     def hook_way_discard_this_card(self, game: Game.Game, player: Player.Player, card: Card.Card):
-        if card.location == Piles.PLAYED:
+        if card.location in (Piles.PLAYED, Piles.DISCARD):
             player.output(f"Way of the Frog moving {card} to top of deck")
             player.move_card(card, Piles.TOPDECK)
         else:
@@ -43,8 +43,8 @@ class Test_Frog(unittest.TestCase):
         self.plr.add_card(self.card, Piles.HAND)
         self.plr.perform_way(self.way, self.card)
         self.assertEqual(self.plr.actions.get(), 1)
-        self.plr.discard_hand({})
-        self.assertIn("Moat", self.plr.piles[Piles.DECK])
+        self.plr.cleanup_phase()
+        self.assertIn("Moat", self.plr.piles[Piles.HAND])
 
 
 ###############################################################################

@@ -51,15 +51,16 @@ class Test_Alchemist(unittest.TestCase):
     def test_nopotion(self) -> None:
         """Discard Alchemist with no potion in play"""
         self.plr.play_card(self.alchemist)
-        self.plr.discard_hand({})
+        self.plr._cleanup_discard_played_and_hand({})
         self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 8)  # 5 for hand, +2 cards, alch
+        self.assertIn("Alchemist", self.plr.piles[Piles.DISCARD])
 
     def test_discard(self) -> None:
         """Discard an Alchemist even if we have a potion in play"""
         self.plr.piles[Piles.PLAYED].set("Potion")
         self.plr.test_input = ["discard"]
         self.plr.play_card(self.alchemist)
-        self.plr.discard_hand({})
+        self.plr._cleanup_discard_played_and_hand({})
         self.assertEqual(self.plr.piles[Piles.DISCARD].size(), 9)  # 5 for hand, +2 cards, alch, pot
         self.assertIn("Alchemist", self.plr.piles[Piles.DISCARD])
 

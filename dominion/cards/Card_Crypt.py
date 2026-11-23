@@ -22,10 +22,10 @@ class Card_Crypt(Card.Card):
         self.cost = 5
 
     def night(self, game: Game.Game, player: Player.Player) -> None:
-        if CRYPT not in player.specials:
-            player.specials[CRYPT] = PlayArea.PlayArea(initial=[])
+        area = player.get_set_aside_area(CRYPT)
+        player.specials[CRYPT] = area
         relevant_cards = PlayArea.PlayArea(initial=[])
-        for card in player.piles[Piles.PLAYED]:
+        for card in player.in_play_cards():
             if card.isTreasure() and not card.isDuration():
                 relevant_cards.add(card)
         if cards := player.card_sel(
@@ -36,21 +36,26 @@ class Card_Crypt(Card.Card):
             cardsrc=relevant_cards,
         ):
             for card in cards:
-                player.specials[CRYPT].add(card)
-                player.piles[Piles.PLAYED].remove(card)
-                player.secret_count += 1
+                player.remove_card(card)
+                area.add(card)
+                card.location = Piles.SPECIAL
             self.permanent = True
+            self.stay_in_play = True
+        else:
+            self.permanent = not area.is_empty()
+            self.stay_in_play = not area.is_empty()
 
     def duration(self, game: "Game.Game", player: "Player.Player") -> dict[OptionKeys, str]:
-        if CRYPT not in player.specials or player.specials[CRYPT].is_empty():
+        area = player.get_set_aside_area(CRYPT)
+        if area.is_empty():
+            self.permanent = False
             return {}
 
-        choices = [(f"Bring back {card}", card) for card in player.specials[CRYPT]]
+        choices = [(f"Bring back {card}", card) for card in area]
         card = player.plr_choose_options("What card to bring back from the crypt?", *choices)
+        area.remove(card)
         player.add_card(card, Piles.HAND)
-        player.specials[CRYPT].remove(card)
-        player.secret_count -= 1
-        if player.specials[CRYPT].is_empty():
+        if area.is_empty():
             self.permanent = False
         return {}
 

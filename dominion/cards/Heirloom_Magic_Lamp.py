@@ -20,12 +20,14 @@ class Card_Magic_Lamp(Card.Card):
         self.cost = 0
         self.coin = 1
         self.purchasable = False
+        self.insupply = False
         self.required_cards = [("Card", "Wish")]
 
     def special(self, game: "Game.Game", player: "Player.Player") -> None:
         cards = []
-        for c in player.piles[Piles.PLAYED]:
-            if player.piles[Piles.PLAYED].count(c) == 1:
+        in_play = player.in_play_cards()
+        for c in in_play:
+            if sum(1 for x in in_play if x.name == c.name) == 1:
                 cards.append(c)
         if len(cards) >= 6:
             player.trash_card(self)
@@ -41,7 +43,9 @@ class TestMagicLamp(unittest.TestCase):
         self.g = Game.TestGame(quiet=True, numplayers=1, initcards=["Secret Cave"])
         self.g.start_game()
         self.plr = self.g.player_list()[0]
-        self.card = self.g.get_card_from_pile("Magic Lamp")
+        self.card = self.plr.all_cards()["Magic Lamp"]
+        assert self.card is not None
+        self.plr.remove_card(self.card)
 
     def test_play_gain(self):
         """Play a Magic Lamp to gain 3 Wishes"""

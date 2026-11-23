@@ -72,6 +72,7 @@ class CardType(Enum):
     PROJECT = auto()
     REACTION = auto()
     RESERVE = auto()
+    REWARD = auto()
     RUIN = auto()
     SHADOW = auto()
     SHELTER = auto()
@@ -111,6 +112,7 @@ class Card:
         self.needsprojects = False
         self.overpay = False
         self.insupply = True
+        self.is_kingdom = True
         self.traveller = False
         self.when = Whens.ANY
         self.actions = 0
@@ -128,6 +130,8 @@ class Card:
         self.uuid = uuid.uuid4().hex
         self._location: Optional[Piles] = None
         self._player: Optional[Player.Player] = None
+        self.game: Optional["Game.Game"] = None
+        self.move_epoch: int = 0
         self._pile: str = ""
         self.desc: str = ""
         self.base: CardExpansion = CardExpansion.TEST
@@ -175,7 +179,20 @@ class Card:
     def location(self, val: Optional[Piles]) -> None:
         if self.debug:
             print(f"# DBG Card {self} moving from {self._location} to {val}")
+        if val != self._location:
+            self.move_epoch += 1
         self._location = val
+
+    def bump_move_epoch(self) -> None:
+        """Mark card as having been covered on top of deck or shuffled (Lose-Track)."""
+        self.move_epoch += 1
+
+    @property
+    def base_cost(self) -> Any:
+        """Return multi-dimensional printed Cost(coins, potions, debt)."""
+        from dominion.Cost import Cost
+
+        return Cost.from_card(self)
 
     ##########################################################################
     @property
@@ -186,15 +203,42 @@ class Card:
     @player.setter
     def player(self, val: Optional["Player.Player"]) -> None:
         self._player = val
+        if val is not None and getattr(val, "game", None) is not None:
+            self.game = val.game
 
     ##########################################################################
     @property
     def cardtype(self) -> list[CardType]:
-        """The types of the card"""
+        """The types of the card (including dynamic types from Prophecy/Project/Card effects)."""
         types = set[CardType](self._card_types)
 
-        if self.player:
-            for card in self.player.relevant_cards():
+        game = self.game or (self.player.game if self.player else None)
+        if game is not None:
+            checked: set[int] = set()
+            # Active prophecy (e.g. Enlightenment) applies globally to all cards everywhere
+            if game.prophecy is not None:
+                dt = game.prophecy.hook_add_dynamic_card_type(self)
+                if dt != CardType.UNDEFINED:
+                    types.add(dt)
+                checked.add(id(game.prophecy))
+            # Global card-game modifiers (e.g. Charlatan makes all Curses Treasures everywhere)
+            for inst in game.card_instances.values():
+                if getattr(inst, "global_dynamic_type", False) and id(inst) not in checked:
+                    dt = inst.hook_add_dynamic_card_type(self)
+                    if dt != CardType.UNDEFINED:
+                        types.add(dt)
+                    checked.add(id(inst))
+            # Current player's active projects/cards in play (e.g. Capitalism during your turn)
+            active_player = game.current_player or self.player
+            if active_player is not None:
+                for card in active_player.dynamic_type_sources():
+                    if id(card) not in checked:
+                        dt = card.hook_add_dynamic_card_type(self)
+                        if dt != CardType.UNDEFINED:
+                            types.add(dt)
+                        checked.add(id(card))
+        elif self.player is not None:
+            for card in self.player.dynamic_type_sources():
                 dt = card.hook_add_dynamic_card_type(self)
                 if dt != CardType.UNDEFINED:
                     types.add(dt)
@@ -235,7 +279,7 @@ class Card:
             ans = desc
         else:
             ans = self.desc
-        for card in player.relevant_cards():
+        for card in player.in_play_and_landscape_cards() + list(player.piles[Piles.HAND]):
             if additional := card.hook_card_description(player.game, player, self):
                 ans += f" {additional}"
         for card in list(player.game.events.values()) + list(player.game.traits.values()):

@@ -32,8 +32,8 @@ class Card_Sailor(Card.Card):
                 ("Play now", True),
             ):
                 player.output(f"Playing {card} from Sailor effect")
-                player.play_card(card, cost_action=False, discard=False)
-                return {OptionKeys.DESTINATION: Piles.DURATION}
+                player.play_card(card, cost_action=False)
+                return {}
         return {}
 
     def duration(self, game: Game.Game, player: Player.Player) -> dict[OptionKeys, Any]:
@@ -61,10 +61,12 @@ class Test_Sailor(unittest.TestCase):
         self.plr.test_input = ["Play now"]
         num_raiders = len(self.g.card_piles["Raider"])
         self.plr.gain_card("Raider")
-        self.assertIn("Raider", self.plr.piles[Piles.DURATION])
-        self.assertIn("Sailor", self.plr.piles[Piles.DURATION])
+        self.assertIn("Raider", self.plr.piles[Piles.PLAYED])
+        self.assertIn("Sailor", self.plr.piles[Piles.PLAYED])
         self.assertEqual(len(self.g.card_piles["Raider"]), num_raiders - 1)
         self.plr.end_turn()
+        self.assertIn("Raider", self.plr.piles[Piles.DURATION])
+        self.assertIn("Sailor", self.plr.piles[Piles.DURATION])
         self.plr.piles[Piles.HAND].set("Gold", "Silver", "Copper")
         self.plr.test_input = ["Trash Copper"]
         self.plr.start_turn()

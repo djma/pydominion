@@ -23,10 +23,10 @@ class Prophecy_Panic(Prophecy.Prophecy):
         return {}
 
     def hook_discard_any_card(
-        self, game: "Game.Game", player: "Player.Player", card: "Card.Card"
+        self, game: "Game.Game", player: "Player.Player", card: "Card.Card", source: Any = None
     ) -> dict[OptionKeys, Any]:
         """when you discard one from play, return it to its pile."""
-        if card.isTreasure():
+        if card.isTreasure() and (source == Piles.PLAYED or source is player.piles[Piles.PLAYED]):
             player.output(f"Discarding {card} due to Panic")
             player.move_card(card, Piles.CARDPILE)
         return {}
@@ -54,12 +54,21 @@ class Test_Panic(unittest.TestCase):
         num_gold = len(self.g.card_piles["Gold"])
         self.plr.piles[Piles.HAND].set("Copper", "Estate", "Duchy")
         self.plr.gain_card("Gold", destination=Piles.HAND)
+        self.plr.play_card(self.plr.piles[Piles.HAND]["Gold"])
+        self.plr.play_card(self.plr.piles[Piles.HAND]["Copper"])
         self.plr.end_turn()
         self.g.print_state()
         self.assertEqual(len(self.g.card_piles["Gold"]), num_gold)
         self.assertNotIn("Gold", self.plr.piles[Piles.DISCARD])
         self.assertNotIn("Copper", self.plr.piles[Piles.DISCARD])
         self.assertIn("Duchy", self.plr.piles[Piles.DISCARD])
+
+    def test_discard_from_hand(self) -> None:
+        card = self.plr.gain_card("Gold", destination=Piles.HAND)
+        num_gold = len(self.g.card_piles["Gold"])
+        self.plr.discard_card(card)
+        self.assertEqual(len(self.g.card_piles["Gold"]), num_gold)
+        self.assertIn(card, self.plr.piles[Piles.DISCARD])
 
 
 ###############################################################################

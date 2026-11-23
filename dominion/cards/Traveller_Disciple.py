@@ -15,6 +15,7 @@ class Card_Disciple(Card.Card):
         )
         self.name = "Disciple"
         self.purchasable = False
+        self.insupply = False
         self.numcards = 5
         self.cost = 5
 
@@ -28,11 +29,8 @@ class Card_Disciple(Card.Card):
         if not cards:
             return
         card = cards[0]
-        for i in range(1, 3):
-            player.output(f"Number {i} play of {card}")
-            player.play_card(card, discard=False, cost_action=False)
-        player.move_card(card, Piles.PLAYED)
-        if card.purchasable:
+        player.play_card_multiple(card, times=2, source_card=self)
+        if card.purchasable and card.insupply:
             try:
                 player.gain_card(card.name)
                 player.output(f"Gained a {card} from Disciple")
@@ -43,6 +41,8 @@ class Card_Disciple(Card.Card):
         self, game: Game.Game, player: Player.Player, source: PlayArea.PlayArea
     ) -> None:
         """Replace with Teacher"""
+        if source != Piles.PLAYED and source is not player.piles[Piles.PLAYED]:
+            return
         player.replace_traveller(self, "Teacher")
 
 
@@ -70,6 +70,17 @@ class TestDisciple(unittest.TestCase):
         self.assertEqual(self.plr.piles[Piles.PLAYED].size(), 2)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 6)
         self.assertIn("Moat", self.plr.piles[Piles.DISCARD])
+
+    def test_exchange_only_from_play(self):
+        from unittest.mock import patch
+
+        with patch.object(self.plr, "replace_traveller") as exchange:
+            for source in (Piles.HAND, Piles.EXILE, self.plr.piles[Piles.HAND], self.plr.piles[Piles.EXILE]):
+                self.card.hook_discard_this_card(self.g, self.plr, source)
+            exchange.assert_not_called()
+            for source in (Piles.PLAYED, self.plr.piles[Piles.PLAYED]):
+                self.card.hook_discard_this_card(self.g, self.plr, source)
+            self.assertEqual(exchange.call_count, 2)
 
 
 ###############################################################################

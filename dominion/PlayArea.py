@@ -13,7 +13,12 @@ if TYPE_CHECKING:
 
 ###############################################################################
 class PlayArea:
-    """Area of play - such as a deck of cards"""
+    """Area of play - such as a deck of cards.
+
+    Index conventions:
+      - index 0 is the bottom of the stack (`add()` / `add_to_bottom()`)
+      - index -1 is the top of the stack (`add_to_top()` / `addToTop()` / `top_card()` / `next_card()`)
+    """
 
     def __init__(
         self,
@@ -23,9 +28,7 @@ class PlayArea:
     ) -> None:
         self.name: str = name
         self.game: Optional[Game.Game] = game
-        if initial is None:
-            initial = []
-        self._cards: list[Card] = initial
+        self._cards: list[Card] = list(initial) if initial is not None else []
 
     ###########################################################################
     def __repr__(self) -> str:
@@ -44,8 +47,8 @@ class PlayArea:
 
     ###########################################################################
     def __getitem__(self, name_or_idx: str | int) -> Optional[Card]:
-        """Return a card with the name {name_or_idx} or None from playarea
-        If the {name_or_idx} is an integer - return that card from that index
+        """Return a card with the name {name_or_idx} or None from playarea.
+        If {name_or_idx} is an integer, return that card from that index.
         """
         if isinstance(name_or_idx, int):
             return self._cards[name_or_idx]
@@ -74,8 +77,18 @@ class PlayArea:
 
     ###########################################################################
     def add(self, card: Card) -> None:
-        """Add a card to the area"""
+        """Add a card to the bottom of the area (index 0)."""
         self._cards.insert(0, card)
+
+    ###########################################################################
+    def add_to_bottom(self, card: Card) -> None:
+        """Explicitly add a card to the bottom of the area (index 0)."""
+        self._cards.insert(0, card)
+
+    ###########################################################################
+    def add_bottom_batch(self, cards: list[Card]) -> None:
+        """Place a sequence of cards on the bottom of this area, preserving order (last element nearest top)."""
+        self._cards = list(cards) + self._cards
 
     ###########################################################################
     def remove(self, card: Card) -> None:
@@ -91,12 +104,20 @@ class PlayArea:
 
     ###########################################################################
     def addToTop(self, card: Card) -> None:
+        """Add a card to the top of the area (index -1)."""
         self._cards.append(card)
+
+    add_to_top = addToTop
 
     ###########################################################################
     def shuffle(self) -> None:
         """Shuffle the cards"""
-        random.shuffle(self._cards)
+        for card in self._cards:
+            card.bump_move_epoch()
+        if self.game is not None:
+            self.game.rng.shuffle(self._cards)
+        else:
+            random.shuffle(self._cards)
 
     ###########################################################################
     def size(self) -> int:
@@ -109,12 +130,12 @@ class PlayArea:
 
     ###########################################################################
     def next_card(self) -> Card:
-        """Take the next card of the play area"""
+        """Take the top card of the play area"""
         return self._cards.pop()
 
     ###########################################################################
     def top_card(self) -> Card:
-        """Return the next card - but don't move it"""
+        """Return the top card without moving it"""
         try:
             return self._cards[-1]
         except IndexError as e:
@@ -135,7 +156,11 @@ class PlayArea:
 
     ###########################################################################
     def __eq__(self, a: Any) -> bool:
-        return self._cards == a.cards if hasattr(a, "cards") else self._cards == a
+        if isinstance(a, PlayArea):
+            return self._cards == a._cards
+        if hasattr(a, "_cards"):
+            return self._cards == a._cards
+        return self._cards == a
 
     ###########################################################################
     def __add__(self, a: Any) -> "PlayArea":

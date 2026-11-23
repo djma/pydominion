@@ -28,14 +28,15 @@ class Card_Procession(Card.Card):
         if not cards:
             return
         card = cards[0]
-        player.move_card(card, Piles.PLAYED)
-
-        for i in range(1, 3):
-            player.output(f"Play {i} of {card}")
-            player.play_card(card, discard=False, cost_action=False)
-        player.trash_card(card)
-        cost = player.card_cost(card) + 1
-        player.plr_gain_card(cost, modifier="equal", types={Card.CardType.ACTION: True})
+        player.play_card_multiple(card, times=2, source_card=self, trash_after=True)
+        target_cost = player.effective_cost(card).with_coin_delta(1)
+        candidates = [
+            c for _, pile in game.get_supply_piles() if pile
+            if (c := pile.get_top_card()) is not None
+            and c.isAction() and player.effective_cost(c) == target_cost
+        ]
+        if candidates:
+            player.plr_gain_card(target_cost.coins, cardsrc=candidates, force=True)
 
 
 ###############################################################################
@@ -57,6 +58,26 @@ class TestProcession(unittest.TestCase):
         self.assertIn("Moat", self.g.trash_pile)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 4)
         self.assertIn("Hermit", self.plr.piles[Piles.DISCARD])
+
+    def test_preserves_potion_and_debt_costs(self):
+        from unittest.mock import patch
+
+        for component, value in (("potcost", True), ("debtcost", 2)):
+            with self.subTest(component=component):
+                target = self.g.get_card_from_pile("Moat")
+                eligible = self.g.card_piles["Hermit"].get_top_card()
+                setattr(target, component, value)
+                setattr(eligible, component, value)
+                self.plr.add_card(target, Piles.HAND)
+                with patch.object(self.plr, "card_sel", return_value=[target]), patch.object(
+                    self.plr, "play_card_multiple"
+                ), patch.object(self.plr, "plr_gain_card") as gain:
+                    self.card.special(self.g, self.plr)
+                candidates = gain.call_args.kwargs["cardsrc"]
+                self.assertIn(eligible, candidates)
+                expected = self.plr.effective_cost(target).with_coin_delta(1)
+                self.assertTrue(all(self.plr.effective_cost(c) == expected for c in candidates))
+                setattr(eligible, component, False if component == "potcost" else 0)
 
 
 ###############################################################################

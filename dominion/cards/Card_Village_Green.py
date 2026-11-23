@@ -22,7 +22,7 @@ class Card_Village_Green(Card.Card):
         self.base = Card.CardExpansion.MENAGERIE
         self.desc = """Either now or at the start of your next turn, +1 Card and +2 Actions.
             When you discard this other than during Clean-up, you may reveal it to play it."""
-        self._choice = "undef"
+        self._next_turn_triggers = 0
 
     def special(self, game, player):
         """Either now or at the start of your next turn, +1 Card and +2 Actions."""
@@ -34,16 +34,17 @@ class Card_Village_Green(Card.Card):
         if choice == "now":
             player.pickup_cards(1)
             player.add_actions(2)
-            self._choice = "now"
         else:
-            self._choice = "then"
+            self._next_turn_triggers += 1
+        self.stay_in_play = self._next_turn_triggers > 0
 
     def duration(self, game, player):
         """Now or then"""
-        if self._choice == "then":
+        if self._next_turn_triggers > 0:
+            self._next_turn_triggers -= 1
             player.pickup_cards(1)
             player.add_actions(2)
-        self._choice = "undef"
+        self.stay_in_play = self._next_turn_triggers > 0
 
     def hook_discard_this_card(self, game, player, source):
         """When you discard this other than during Clean-up, you may reveal it to play it."""
@@ -97,7 +98,24 @@ class TestVillageGreen(unittest.TestCase):
         self.plr.discard_card(self.card)
         self.assertEqual(self.plr.actions.get(), actions + 2)
         self.assertEqual(self.plr.piles[Piles.HAND].size(), 5 + 1)
-        self.assertIn("Village Green", self.plr.piles[Piles.DURATION])
+        self.assertIn("Village Green", self.plr.piles[Piles.PLAYED])
+
+    def test_two_next_turn_plays(self):
+        self.plr.test_input = ["Next", "Next"]
+        self.plr.play_card(self.card)
+        self.plr.play_card(self.card, cost_action=False, move_card=False)
+        self.plr.end_turn()
+        self.plr.start_turn()
+        self.assertEqual(len(self.plr.piles[Piles.HAND]), 7)
+        self.assertEqual(self.plr.actions.get(), 5)
+        self.assertEqual(self.card._next_turn_triggers, 0)
+
+    def test_now_replay_keeps_next_turn_trigger(self):
+        self.plr.test_input = ["Next", "Now"]
+        self.plr.play_card(self.card)
+        self.plr.play_card(self.card, cost_action=False, move_card=False)
+        self.assertTrue(self.card.stay_in_play)
+        self.assertEqual(self.card._next_turn_triggers, 1)
 
 
 ###############################################################################

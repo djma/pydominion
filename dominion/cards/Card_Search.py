@@ -44,6 +44,8 @@ class TestSearch(unittest.TestCase):
         coins = self.plr.coins.get()
         self.plr.play_card(self.card)
         self.assertEqual(self.plr.coins.get(), coins + 2)
+        self.assertIn("Search", self.plr.piles[Piles.PLAYED])
+        self.plr.end_turn()
         self.assertIn("Search", self.plr.piles[Piles.DURATION])
 
     def test_empty_stack(self):

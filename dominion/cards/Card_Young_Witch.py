@@ -4,6 +4,7 @@
 
 import random
 import unittest
+from unittest.mock import patch
 
 from dominion import Card, Game, Piles, Keys, Player, NoCardException, game_setup
 
@@ -28,6 +29,8 @@ class Card_YoungWitch(Card.Card):
     def setup(self, game: Game.Game) -> None:
         """Setup: Add an extra Kingdom card pile costing 2 or 3 to the Supply.
         Cards from that pile are Bane cards."""
+        if BANE in game.specials:
+            return
         banes = []
         for klass in game.card_mapping["Card"].values():
             card = klass()
@@ -36,16 +39,15 @@ class Card_YoungWitch(Card.Card):
                 continue
             if not card.insupply or not card.purchasable:
                 continue
-            if card.name in game_setup.INIT_CARDS[Keys.BAD_CARDS]:
+            if card.name in game.config.init_cards[Keys.BAD_CARDS]:
                 continue
-            if card.cost not in (2, 3):
+            if card.cost not in (2, 3) or card.potcost or card.debtcost:
                 continue
             banes.append(card.name)
         bane = random.choice(banes)
         game.specials[BANE] = bane
         game_setup.use_card_pile(game, game.get_available_cards(), game.specials[BANE])
         game_setup.check_card_requirement(game, game.card_instances[bane])
-        game.card_piles[bane].setup(game=game)
         if game.hexes or game.boons:
             game_setup.load_states(game)
         game.output(f"Using {bane} as the bane for Young Witch")
@@ -53,7 +55,8 @@ class Card_YoungWitch(Card.Card):
     def special(self, game: Game.Game, player: Player.Player) -> None:
         player.plr_discard_cards(num=2, force=True)
         for victim in player.attack_victims():
-            if victim.piles[Piles.HAND][game.specials[BANE]]:
+            bane = game.specials[BANE]
+            if any(card.name == bane or card.pile == bane for card in victim.piles[Piles.HAND]):
                 player.output(f"{victim} has the bane: {game.specials[BANE]}")
                 continue
             player.output(f"{victim} got cursed")
@@ -108,6 +111,45 @@ class TestYoungWitch(unittest.TestCase):
             print(f"Bane={self.g.specials[BANE]}")
             self.g.print_state()
             raise
+
+
+###############################################################################
+class TestYoungWitchSetup(unittest.TestCase):
+    """Test extra piles and split-pile Bane cards."""
+
+    def test_druid_bane(self) -> None:
+        game = Game.TestGame(num_stacks=1, initcards=["Young Witch"])
+        with patch("random.choice", side_effect=lambda cards: "Druid" if "Druid" in cards else cards[0]):
+            game.start_game()
+        self.assertEqual(game.specials[BANE], "Druid")
+        self.assertEqual(len(game.boons), 9)
+        self.assertEqual(len(game.specials["druid"]), 3)
+        self.assertTrue(set(game.card_piles).issubset(game.specials["_setup_done"]))
+
+    def test_split_bane(self) -> None:
+        game = Game.TestGame(num_stacks=1, initcards=["Young Witch"])
+        with patch("random.choice", side_effect=lambda cards: "Patrician" if "Patrician" in cards else cards[0]):
+            game.start_game()
+        attacker, victim = game.player_list()
+        for name in ("Patrician", "Emporium"):
+            with self.subTest(name=name):
+                victim.piles[Piles.HAND].empty()
+                victim.add_card(game.get_card_from_pile("Patrician", name), Piles.HAND)
+                attacker.piles[Piles.HAND].empty()
+                game.card_instances["Young Witch"].special(game, attacker)
+                self.assertNotIn("Curse", victim.piles[Piles.DISCARD])
+
+    def test_bane_name(self) -> None:
+        """A matching card name also blocks the attack."""
+        game = Game.TestGame(num_stacks=2, initcards=["Young Witch", "Village"])
+        game.start_game()
+        attacker, victim = game.player_list()
+        game.specials[BANE] = "Village"
+        victim.piles[Piles.HAND].set("Village")
+        victim.piles[Piles.HAND][0].pile = ""
+        attacker.piles[Piles.HAND].empty()
+        game.card_instances["Young Witch"].special(game, attacker)
+        self.assertNotIn("Curse", victim.piles[Piles.DISCARD])
 
 
 ###############################################################################
